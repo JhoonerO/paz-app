@@ -25,41 +25,68 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
 
   function redirectUrl() {
-    // Si configuraste un esquema (app.json -> scheme), úsalo aquí.
-    // Asegúrate de añadir esta URL en Supabase: Auth → URL Configuration → Redirect URLs
-    // Ejemplo de ruta de callback (no necesitas implementarla ahora):
-    //   Linking.createURL('/auth/callback', { scheme: 'paz' })
+    // Si configuraste un scheme (app.json -> expo.scheme), define aquí tu callback.
+    // Asegúrate de registrarlo en Supabase > Authentication > URL Configuration > Redirect URLs.
     return Linking.createURL('/auth/callback');
   }
 
+  // Crea/actualiza el perfil en tu tabla "profiles"
+  async function ensureProfile(userId: string, displayName: string) {
+    const { error } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: userId,                 // PK = auth.uid()
+          display_name: displayName,  // ✅ el nombre escrito en el input
+          avatar_url: null,
+          likes_public: true,
+        },
+        { onConflict: 'id' }
+      );
+
+    if (error) {
+      console.error('upsert profiles error:', error);
+      throw error;
+    }
+  }
+
   async function onRegister() {
-    if (!name.trim() || !email.trim() || !pass.trim()) {
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName || !trimmedEmail || !pass.trim()) {
       Alert.alert('Campos faltantes', 'Nombre, correo y contraseña son obligatorios.');
       return;
     }
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email: email.trim(),
+      // 1) Crear cuenta
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
         password: pass,
         options: {
-          data: { display_name: name.trim() },         // se copia a profiles con tu trigger
-          emailRedirectTo: redirectUrl(),              // link de retorno tras confirmar
+          // Esto va a user_metadata, NO a tu tabla profiles (por eso hacemos upsert abajo)
+          data: { display_name: trimmedName },
+          emailRedirectTo: redirectUrl(),
         },
       });
-
       if (error) throw error;
 
+      // 2) Si el usuario ya existe (según configuración de confirmación),
+      //    guardamos inmediatamente su perfil con el nombre del input:
+      const userId = data.user?.id;
+      if (userId) {
+        await ensureProfile(userId, trimmedName);
+        // Puedes llevarlo directo a la app si no exiges confirmación por email:
+        // router.replace('/(tabs)');
+      }
+
+      // 3) Mensaje estándar de confirmación de correo
       Alert.alert(
         'Confirma tu correo',
-        '¡Perfecto! Te enviamos un correo de verificación. Abre tu Gmail, confirma tu cuenta y luego inicia sesión.',
-        [
-          {
-            text: 'Ir al inicio de sesión',
-            onPress: () => router.replace('/(auth)/login'),
-          },
-        ]
+        'Te enviamos un correo de verificación. Abre tu Gmail, confirma tu cuenta y luego inicia sesión.',
+        [{ text: 'Ir al inicio de sesión', onPress: () => router.replace('/(auth)/login') }]
       );
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'No se pudo registrar.');
