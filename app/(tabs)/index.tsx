@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, RefreshControl } from 'react-native';
-import { Link, useFocusEffect } from 'expo-router';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 
@@ -194,6 +194,8 @@ function StoryCard({
   liked: boolean;
   onToggleLike: (id: string) => void;
 }) {
+  const router = useRouter();
+
   const hasCover = !!item.cover_url;
   const author = item.author_name?.trim() || 'Autor';
   const avatar = item.profiles?.[0]?.avatar_url ?? null;
@@ -205,25 +207,10 @@ function StoryCard({
   }, [item.body]);
 
   return (
-    <Link
-      href={{
-        pathname: '/story/[id]',
-        params: {
-          id: item.id,
-          title: item.title,
-          author,
-          body: item.body,
-          cover: item.cover_url ?? '',
-          likes: String(item.likes_count ?? 0),
-          comments: String(item.comments_count ?? 0),
-          source: 'home',
-        },
-      }}
-      asChild
-    >
-      <TouchableOpacity activeOpacity={0.85} style={s.card}>
-        {/* Autor */}
-        <View style={s.headerRow}>
+    <View style={s.card}>
+      {/* ===== Header: AVATAR + NOMBRE -> PERFIL ===== */}
+      <Link href={{ pathname: '/profile/[id]', params: { id: item.author_id } }} asChild>
+        <TouchableOpacity activeOpacity={0.85} style={s.headerRow}>
           {avatar ? (
             <Image source={{ uri: avatar }} style={s.avatar} />
           ) : (
@@ -232,15 +219,35 @@ function StoryCard({
             </View>
           )}
           <Text style={s.author}>{author}</Text>
-        </View>
+        </TouchableOpacity>
+      </Link>
 
+      {/* ===== Body: TÍTULO/IMAGEN/EXTRACTO -> HISTORIA ===== */}
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() =>
+          router.push({
+            pathname: '/story/[id]',
+            params: {
+              id: item.id,
+              title: item.title,
+              author,
+              body: item.body,
+              cover: item.cover_url ?? '',
+              likes: String(item.likes_count ?? 0),
+              comments: String(item.comments_count ?? 0),
+              source: 'home',
+            },
+          })
+        }
+      >
         {/* Título */}
         <Text style={s.cardTitle}>{item.title}</Text>
 
-        {/* Portada solo si existe */}
+        {/* Portada si existe */}
         {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
 
-        {/* Extracto siempre visible en el feed */}
+        {/* Extracto */}
         <Text style={[s.excerpt, !hasCover && { marginTop: 6 }]}>{excerpt}</Text>
 
         {/* Métricas + like */}
@@ -255,7 +262,7 @@ function StoryCard({
           </View>
         </View>
       </TouchableOpacity>
-    </Link>
+    </View>
   );
 }
 

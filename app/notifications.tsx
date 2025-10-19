@@ -32,8 +32,6 @@ export default function NotificationsScreen() {
   const HEADER_BAR = 56;
 
   const loadNotifications = async (userId: string) => {
-    console.log('🔍 Cargando notificaciones para userId:', userId);
-
     const { data, error } = await supabase
       .from('notifications')
       .select(`
@@ -53,25 +51,18 @@ export default function NotificationsScreen() {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('❌ Error al cargar notificaciones:', error);
       return;
     }
 
-    console.log('✅ Notificaciones cargadas:', data);
-
     const mapped = data.map((n: any) => {
-      // 👇 ACCESO DIRECTO SIN [0] PORQUE SON OBJETOS
       const actorName = n.profiles?.display_name?.trim() || 'Alguien';
       const actorAvatar = n.profiles?.avatar_url ?? null;
       const storyTitle = n.stories?.title?.trim() || 'Historia sin título';
       const storyAuthor = n.stories?.author_name?.trim() || 'Autor';
-      const storyCover = n.stories?.cover_url ?? null;
-
-      console.log('📦 Datos procesados:', {
-        actorName,
-        storyTitle,
-        storyCover,
-      });
+      const storyCover =
+        (n.stories?.cover_url && n.stories.cover_url.trim().length > 0)
+          ? n.stories.cover_url.trim()
+          : null;
 
       return {
         id: n.id,
@@ -96,7 +87,6 @@ export default function NotificationsScreen() {
       const uid = user?.id;
       if (!uid) return;
 
-      console.log('👤 Usuario autenticado:', uid);
       await loadNotifications(uid);
 
       const channel = supabase
@@ -110,7 +100,6 @@ export default function NotificationsScreen() {
             filter: `user_id=eq.${uid}`,
           },
           (payload) => {
-            console.log('🆕 Nueva notificación recibida:', payload.new);
             loadNotifications(uid);
           }
         )
@@ -206,10 +195,13 @@ function NotificationRow({ item }: { item: NotificationItem }) {
           </View>
         </View>
 
-        {item.storyCover ? (
-          <Image source={{ uri: item.storyCover }} style={s.thumb} />
-        ) : (
-          <View style={[s.thumb, { backgroundColor: '#0F1016' }]} />
+        {item.storyCover && (
+          <Image
+            source={{ uri: item.storyCover }}
+            style={s.thumb}
+            resizeMode="cover"
+            onError={() => {}}
+          />
         )}
       </TouchableOpacity>
     </Link>

@@ -1,6 +1,14 @@
 // app/(tabs)/profile.tsx
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  TouchableOpacity,
+  FlatList,
+  Modal,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
@@ -62,6 +70,38 @@ export default function Profile() {
 
   // Set con ids likeados para pintar corazón rojo y togglear
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+
+  // ---- Sheet elegante (igual que en login) ----
+  const [showSheet, setShowSheet] = useState(false);
+  const [sheet, setSheet] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    onConfirm: () => void;
+    variant: 'info' | 'error';
+  }>({
+    title: '',
+    message: '',
+    confirmText: 'Cerrar',
+    onConfirm: () => setShowSheet(false),
+    variant: 'info',
+  });
+
+  function showNotification(
+    title: string,
+    message: string,
+    variant: 'info' | 'error' = 'info',
+    confirmText = 'Cerrar'
+  ) {
+    setSheet({
+      title,
+      message,
+      confirmText,
+      variant,
+      onConfirm: () => setShowSheet(false),
+    });
+    setShowSheet(true);
+  }
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -220,7 +260,7 @@ export default function Profile() {
         setLikedStories(likedWithAuthor);
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo cargar tu perfil.');
+      showNotification('Error', e?.message ?? 'No se pudo cargar tu perfil.', 'error');
     }
   }, []);
 
@@ -231,7 +271,7 @@ export default function Profile() {
   async function pickImage(): Promise<string | null> {
     const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!granted) {
-      Alert.alert('Permiso', 'Necesitamos acceso a tu galería para cambiar la imagen.');
+      showNotification('Permiso', 'Necesitamos acceso a tu galería para cambiar la imagen.', 'error');
       return null;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -266,15 +306,15 @@ export default function Profile() {
 
       const { error: profErr } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', uid);
       if (profErr) {
-        Alert.alert('Error', 'No se pudo actualizar el avatar. Verifica que tienes permisos.');
+        showNotification('Error', 'No se pudo actualizar el avatar. Verifica que tienes permisos.', 'error');
         console.error('Error al actualizar avatar:', profErr);
         return;
       }
 
       setAvatarUrl(url);
-      Alert.alert('Listo', 'Tu foto de perfil ha sido actualizada.');
+      showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo actualizar el avatar.');
+      showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
     }
   }
 
@@ -318,7 +358,7 @@ export default function Profile() {
           .match({ user_id: userId, story_id: story.id });
         if (error) {
           setLikedIds(prev => new Set(prev).add(story.id));
-          Alert.alert('Ups', 'No se pudo quitar tu like. Intenta de nuevo.');
+          showNotification('Ups', 'No se pudo quitar tu like. Intenta de nuevo.', 'error');
         }
       } else {
         const { error } = await supabase
@@ -330,7 +370,7 @@ export default function Profile() {
             next.delete(story.id);
             return next;
           });
-          Alert.alert('Ups', 'No se pudo registrar tu like. Intenta de nuevo.');
+          showNotification('Ups', 'No se pudo registrar tu like. Intenta de nuevo.', 'error');
         }
       }
     },
@@ -350,7 +390,6 @@ export default function Profile() {
           </TouchableOpacity>
         </View>
         <Text style={s.name}>{displayName}</Text>
-        {/* 🔥 Eliminado el badge con “X historias” */}
       </View>
 
       {/* Tabs */}
@@ -391,6 +430,45 @@ export default function Profile() {
         )}
         showsVerticalScrollIndicator={false}
       />
+
+      {/* Sheet / mini notificación elegante */}
+      <Modal
+        visible={showSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSheet(false)}
+      >
+        <View style={s.overlay}>
+          <View style={s.sheet}>
+            <View
+              style={[
+                s.iconWrap,
+                sheet.variant === 'error'
+                  ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
+                  : { backgroundColor: '#1F2937', borderColor: '#374151' },
+              ]}
+            >
+              <Ionicons
+                name={sheet.variant === 'error' ? 'alert-circle' : 'information-circle'}
+                size={24}
+                color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
+              />
+            </View>
+
+            <Text style={s.sheetTitle}>{sheet.title}</Text>
+            <Text style={s.sheetMsg}>{sheet.message}</Text>
+
+            <View style={s.sheetActions}>
+              <TouchableOpacity
+                style={[s.sheetBtn, s.sheetBtnPrimary]}
+                onPress={sheet.onConfirm}
+              >
+                <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -497,8 +575,6 @@ const s = StyleSheet.create({
   },
   name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700', flex: 1 },
 
-  // 🔥 eliminado el estilo 'badge' y 'badgeText'
-
   tabs: { marginTop: 24, paddingHorizontal: 16, flexDirection: 'row', gap: 10 },
   tabBtn: {
     flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#27272A',
@@ -527,4 +603,64 @@ const s = StyleSheet.create({
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
+
+  // === Sheet styles (igual que en login) ===
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    width: '100%',
+    backgroundColor: '#121219',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    borderTopWidth: 1,
+    borderColor: '#1F1F27',
+  },
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  sheetTitle: { 
+    color: '#F3F4F6', 
+    fontWeight: '700', 
+    fontSize: 18, 
+    textAlign: 'center' 
+  },
+  sheetMsg: { 
+    color: '#D1D5DB', 
+    textAlign: 'center', 
+    marginTop: 6 
+  },
+  sheetActions: { 
+    flexDirection: 'row', 
+    gap: 10, 
+    marginTop: 16, 
+    justifyContent: 'center' 
+  },
+  sheetBtn: {
+    height: 44,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  sheetBtnPrimary: { 
+    backgroundColor: '#1F2937', 
+    borderColor: '#27272A' 
+  },
+  sheetBtnText: { 
+    fontWeight: '600', 
+    color: '#fff' 
+  },
 });

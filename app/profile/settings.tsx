@@ -1,3 +1,4 @@
+// app/profile/settings.tsx
 import { useEffect, useState } from 'react';
 import {
   View,
@@ -5,52 +6,102 @@ import {
   StyleSheet,
   Switch,
   TouchableOpacity,
-  Alert,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { supabase } from '../../lib/supabase';
 
-const KEY_SHOW_LIKES = 'pref_showLikes';
-const KEY_SESSION = 'session_active';
+const KEY_SESSION = 'session_active';           // tu clave existente
+const KEY_SHOW_LIKES_CACHE = 'pref_showLikes';  // cache opcional local
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [showLikes, setShowLikes] = useState(true);
 
+  // likes_public en Supabase
+  const [showLikes, setShowLikes] = useState(true);
+  const [savingLikes, setSavingLikes] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // modal de cerrar sesión
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  // ---------- Carga inicial desde Supabase ----------
   useEffect(() => {
     (async () => {
-      const v = await AsyncStorage.getItem(KEY_SHOW_LIKES);
-      setShowLikes(v === null ? true : v === 'true');
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id ?? null;
+      setUserId(uid);
+
+      // usa cache como fallback mientras llega Supabase (evita parpadeo)
+      const cached = await AsyncStorage.getItem(KEY_SHOW_LIKES_CACHE);
+      if (cached !== null) setShowLikes(cached === 'true');
+
+      if (!uid) return;
+
+      const { data: prof, error } = await supabase
+        .from('profiles')
+        .select('likes_public')
+        .eq('id', uid)
+        .single<{ likes_public: boolean }>();
+
+      if (!error && prof) {
+        setShowLikes(Boolean(prof.likes_public));
+        await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(prof.likes_public));
+      }
     })();
   }, []);
 
-  async function toggleLikes(v: boolean) {
-    setShowLikes(v);
-    await AsyncStorage.setItem(KEY_SHOW_LIKES, String(v));
+  // ---------- Update en Supabase con optimismo + rollback ----------
+  async function toggleLikes(next: boolean) {
+    if (!userId || savingLikes) return;
+    setSavingLikes(true);
+
+    // Optimista
+    const prev = showLikes;
+    setShowLikes(next);
+    await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(next));
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ likes_public: next })
+      .eq('id', userId);
+
+    if (error) {
+      // rollback si falla
+      setShowLikes(prev);
+      await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(prev));
+      console.warn('No se pudo actualizar likes_public:', error.message);
+    }
+    setSavingLikes(false);
   }
 
-  async function logout() {
-    Alert.alert('Cerrar sesión', '¿Seguro que quieres salir?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Salir',
-        style: 'destructive',
-        onPress: async () => {
-          await AsyncStorage.removeItem(KEY_SESSION);
-          router.replace('/(auth)/login');
-        },
-      },
-    ]);
+  // ---------- Logout ----------
+  function logout() {
+    setConfirmOpen(true);
+  }
+
+  async function doLogout() {
+    try {
+      setLoggingOut(true);
+      await AsyncStorage.removeItem(KEY_SESSION);
+      setConfirmOpen(false);
+      router.replace('/(auth)/login');
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   const HEADER_H = 56;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0B0B0F' }} edges={['top', 'bottom']}>
-      {/* Header: al salir, SIEMPRE ir al perfil */}
+      {/* Header */}
       <View style={[s.header, { paddingTop: insets.top, height: insets.top + HEADER_H }]}>
         <TouchableOpacity
           onPress={() => router.replace('/(tabs)/profile')}
@@ -78,6 +129,7 @@ export default function SettingsScreen() {
           <Switch
             value={showLikes}
             onValueChange={toggleLikes}
+            disabled={savingLikes || !userId}
             thumbColor={showLikes ? '#60A5FA' : '#374151'}
             trackColor={{ true: '#1F3B5B', false: '#111827' }}
           />
@@ -93,6 +145,45 @@ export default function SettingsScreen() {
           <Text style={s.logoutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Modal Cerrar sesión */}
+      <Modal
+        visible={confirmOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmOpen(false)}
+      >
+        <View style={s.modalBackdrop}>
+          <Pressable style={s.backdropTouchable} onPress={() => !loggingOut && setConfirmOpen(false)} />
+          <View style={s.modalCard}>
+            <View style={s.modalIconWrap}>
+              <Ionicons name="log-out-outline" size={22} color="#FEE2E2" />
+            </View>
+            <Text style={s.modalTitle}>Cerrar sesión</Text>
+            <Text style={s.modalMsg}>¿Seguro que quieres salir?</Text>
+
+            <View style={s.modalBtns}>
+              <TouchableOpacity
+                onPress={() => setConfirmOpen(false)}
+                style={[s.modalBtn, s.btnGhost]}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.modalBtnTxt, s.btnGhostTxt]}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={doLogout}
+                style={[s.modalBtn, s.btnDanger]}
+                disabled={loggingOut}
+                activeOpacity={0.85}
+              >
+                <Text style={s.modalBtnTxt}>{loggingOut ? 'Saliendo…' : 'Salir'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -131,4 +222,31 @@ const s = StyleSheet.create({
 
   logout: { marginTop: 14, paddingVertical: 16, alignItems: 'center' },
   logoutText: { color: '#EF4444', fontWeight: '600' },
+
+  // Modal
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  backdropTouchable: { flex: 1 },
+  modalCard: {
+    backgroundColor: '#121219',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1F1F27',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  modalIconWrap: {
+    alignSelf: 'center',
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#451a1a', alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  modalTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  modalMsg: { color: '#C9C9D1', textAlign: 'center', marginTop: 4, marginBottom: 12 },
+  modalBtns: { flexDirection: 'row', gap: 10, paddingBottom: 8 },
+  modalBtn: { flex: 1, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  btnGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#1F2937' },
+  btnGhostTxt: { color: '#E5E7EB' },
+  btnDanger: { backgroundColor: '#991b1b' },
+  modalBtnTxt: { color: '#F3F4F6', fontWeight: '700' },
 });
