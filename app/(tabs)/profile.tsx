@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   FlatList,
   Modal,
+  ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, FontAwesome6 } from '@expo/vector-icons';
@@ -15,6 +16,22 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
+
+// 👇 AVATARES PREDETERMINADOS
+const DEFAULT_AVATARS = [
+  { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg') },
+  { id: 'caballo', name: 'Caballo', source: require('../../imagenes_de_Perfil/caballo.jpg') },
+  { id: 'capibara', name: 'Capibara', source: require('../../imagenes_de_Perfil/capibara.jpg') },
+  { id: 'cocodrilo', name: 'Babilla', source: require('../../imagenes_de_Perfil/cocodrilito.jpg') },
+  { id: 'foca', name: 'Manatí', source: require('../../imagenes_de_Perfil/foca.jpg') },
+  { id: 'murcielago', name: 'Murciélago', source: require('../../imagenes_de_Perfil/murcielago.jpg') },
+  { id: 'paloma', name: 'Paloma', source: require('../../imagenes_de_Perfil/paloma.jpg') },
+  { id: 'pollo', name: 'Gallina', source: require('../../imagenes_de_Perfil/pollo.jpg') },
+  { id: 'rana', name: 'Rana', source: require('../../imagenes_de_Perfil/rana.jpg') },
+  { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg') },
+];
 
 // ==== Tipos ====
 type DBStory = {
@@ -31,7 +48,7 @@ type DBStory = {
     display_name: string | null;
     avatar_url: string | null;
   }[] | null;
-  liked_at?: string; // para ordenar "Me gusta"
+  liked_at?: string;
 };
 
 type ProfileRow = {
@@ -74,10 +91,10 @@ export default function Profile() {
   const [likedStories, setLikedStories] = useState<DBStory[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Set con ids likeados para pintar corazón rojo y togglear
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
-  // ---- Sheet elegante (igual que en login) ----
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
     title: string;
@@ -131,8 +148,8 @@ export default function Profile() {
     onPress={() => router.push('/')}
     hitSlop={10}
     style={{ 
-      paddingHorizontal: 16, // 👈 Igual que en create
-      paddingVertical: 8,   // 👈 Opcional, para mejor área táctil vertical
+      paddingHorizontal: 16,
+      paddingVertical: 8,
     }}
   >
     <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
@@ -179,7 +196,6 @@ export default function Profile() {
         return;
       }
 
-      // Perfil
       const { data: prof } = await supabase
         .from('profiles')
         .select('display_name, avatar_url, likes_public')
@@ -190,7 +206,6 @@ export default function Profile() {
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
 
-      // ==== Mis historias (con embed del autor) ====
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
         .select(`
@@ -220,7 +235,6 @@ export default function Profile() {
       });
       setMyStories(myStoriesWithAuthor);
 
-      // ==== Mis likes: ordenar por CUÁNDO diste like y garantizar avatar del autor ====
       const { data: likeRows, error: likeErr } = await supabase
         .from('story_likes')
         .select('story_id, created_at')
@@ -254,7 +268,6 @@ export default function Profile() {
           .in('id', ids);
         if (likedErr) throw likedErr;
 
-        // --- Paso A: backfill de display_name básico si no hay embed ---
         let likedWithAuthor: DBStory[] = (liked ?? []).map((story: any) => {
           if (!story.profiles || story.profiles.length === 0) {
             return {
@@ -265,7 +278,6 @@ export default function Profile() {
           return story;
         });
 
-        // --- Paso B: traer perfiles de TODOS los author_id y rellenar avatar si falta ---
         const authorIds = Array.from(new Set(likedWithAuthor.map(s => s.author_id)));
         if (authorIds.length) {
           const { data: authorProfiles } = await supabase
@@ -282,11 +294,9 @@ export default function Profile() {
             const current = st.profiles?.[0] ?? null;
             const fromMap = pMap.get(st.author_id) ?? null;
 
-            // si falta avatar o falta profile, lo rellenamos
             if (!current || current.avatar_url == null || current.display_name == null) {
               const display_name = current?.display_name ?? fromMap?.display_name ?? st.author_name ?? 'Autor';
               const avatar_url =
-                // Si es TU historia, usa tu avatar como último fallback
                 (st.author_id === uid ? (prof?.avatar_url ?? null) : null) ??
                 current?.avatar_url ??
                 fromMap?.avatar_url ??
@@ -298,7 +308,6 @@ export default function Profile() {
           });
         }
 
-        // --- Paso C: adjuntar liked_at y ordenar por liked_at desc ---
         likedWithAuthor = likedWithAuthor.map(st => ({ ...st, liked_at: likedAtMap.get(st.id) }));
         likedWithAuthor.sort((a, b) => {
           const da = a.liked_at ?? a.created_at;
@@ -316,7 +325,58 @@ export default function Profile() {
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
   useFocusEffect(useCallback(() => { loadFromSupabase(); }, [loadFromSupabase]));
 
-  // ===== Avatar & portada =====
+  // 👇 MODIFICADO: Subir avatar predeterminado a Supabase
+  async function selectDefaultAvatar(avatarId: string) {
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const uid = authData.user?.id;
+      if (!uid) return;
+
+      // Buscar el avatar en el array
+      const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
+      if (!avatar) return;
+
+      // Convertir el require() a URI local usando expo-asset
+      const asset = Asset.fromModule(avatar.source);
+      await asset.downloadAsync();
+      
+      if (!asset.localUri) {
+        showNotification('Error', 'No se pudo cargar la imagen.', 'error');
+        return;
+      }
+
+      // Subir a Supabase como cualquier otra imagen
+      const { ext, type } = getExtAndType(asset.localUri);
+      const ab = await uriToArrayBuffer(asset.localUri);
+      const path = `${uid}/avatar_${avatarId}.${ext}`;
+
+      const { error: upErr } = await supabase.storage
+        .from('covers')
+        .upload(path, ab, { upsert: true, contentType: type, cacheControl: '3600' });
+      
+      if (upErr) throw upErr;
+
+      const { data: pub } = supabase.storage.from('covers').getPublicUrl(path);
+      const url = pub.publicUrl;
+
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .update({ avatar_url: url })
+        .eq('id', uid);
+
+      if (profErr) {
+        showNotification('Error', 'No se pudo actualizar el avatar.', 'error');
+        return;
+      }
+
+      setAvatarUrl(url);
+      setShowAvatarPicker(false);
+      showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
+    } catch (e: any) {
+      showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
+    }
+  }
+
   async function pickImage(): Promise<string | null> {
     const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!granted) {
@@ -331,7 +391,6 @@ export default function Profile() {
     return res.assets[0].uri;
   }
 
-  // Upload avatar usando ArrayBuffer
   async function onChangeAvatar() {
     try {
       const { data: authData } = await supabase.auth.getUser();
@@ -361,19 +420,18 @@ export default function Profile() {
       }
 
       setAvatarUrl(url);
+      setShowAvatarPicker(false);
       showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
     } catch (e: any) {
       showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
     }
   }
 
-  // ===== Toggle Like (optimista) =====
   const toggleLike = useCallback(
     async (story: DBStory) => {
       if (!userId) return;
       const isLiked = likedIds.has(story.id);
 
-      // Optimista: actualizar estados locales
       setLikedIds(prev => {
         const next = new Set(prev);
         if (isLiked) next.delete(story.id);
@@ -399,7 +457,6 @@ export default function Profile() {
         setLikedStories(curr => adjustCount(curr, story.id, isLiked ? -1 : +1));
       }
 
-      // Persistir en BD
       if (isLiked) {
         const { error } = await supabase
           .from('story_likes')
@@ -430,18 +487,20 @@ export default function Profile() {
 
   return (
     <View style={s.screen}>
-      {/* Avatar + nombre */}
       <View style={s.avatarRow}>
         <View style={s.avatarWrap}>
-          {avatarUrl ? <Image source={{ uri: avatarUrl }} style={s.avatar} /> : <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />}
-          <TouchableOpacity style={s.editAvatarBtn} onPress={onChangeAvatar} hitSlop={10}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={s.avatar} />
+          ) : (
+            <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
+          )}
+          <TouchableOpacity style={s.editAvatarBtn} onPress={() => setShowAvatarPicker(true)} hitSlop={10}>
             <Ionicons name="camera-outline" size={16} color="#F3F4F6" />
           </TouchableOpacity>
         </View>
         <Text style={s.name}>{displayName}</Text>
       </View>
 
-      {/* Tabs - Botón Dividido */}
       <View style={s.tabs}>
         <View style={s.tabBtnContainer}>
           <TouchableOpacity 
@@ -464,7 +523,6 @@ export default function Profile() {
         </View>
       </View>
 
-      {/* Lista */}
       <FlatList
         data={listData}
         keyExtractor={(it) => it.id}
@@ -472,7 +530,7 @@ export default function Profile() {
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         ListEmptyComponent={
           <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
-            {tab === 'mine' ? 'Aún no has subido historias.' : 'Aún no tienes historias con “Me gusta”.'}
+            {tab === 'mine' ? 'Aún no has subido historias.' : 'Aún no tienes historias con "Me gusta".'}
           </Text>
         }
         renderItem={({ item }) => (
@@ -488,7 +546,43 @@ export default function Profile() {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Sheet / mini notificación elegante */}
+      <Modal
+        visible={showAvatarPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAvatarPicker(false)}
+      >
+        <View style={s.overlay}>
+          <View style={s.avatarPickerSheet}>
+            <View style={s.avatarPickerHeader}>
+              <Text style={s.avatarPickerTitle}>Elige tu avatar</Text>
+              <TouchableOpacity onPress={() => setShowAvatarPicker(false)} hitSlop={10}>
+                <Ionicons name="close" size={24} color="#F3F4F6" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={s.avatarGrid} showsVerticalScrollIndicator={false}>
+              {DEFAULT_AVATARS.map((avatar) => (
+                <TouchableOpacity
+                  key={avatar.id}
+                  onPress={() => selectDefaultAvatar(avatar.id)}
+                  style={s.avatarOption}
+                  activeOpacity={0.7}
+                >
+                  <Image source={avatar.source} style={s.avatarOptionImg} />
+                  <Text style={s.avatarOptionName}>{avatar.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity style={s.galleryBtn} onPress={onChangeAvatar}>
+              <Ionicons name="images-outline" size={20} color="#F3F4F6" />
+              <Text style={s.galleryBtnText}>Elegir de galería</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={showSheet}
         transparent
@@ -635,60 +729,48 @@ const s = StyleSheet.create({
 tabs: { 
   marginTop: 24, 
   paddingHorizontal: 16,
-  marginBottom: 16, // 👈 AGREGA ESTA LÍNEA
+  marginBottom: 16,
 },
 
 tabBtnContainer: {
   flexDirection: 'row',
   height: 40,
   borderRadius: 8,
-  backgroundColor: '#000000ff', // Fondo gris oscuro del contenedor completo
+  backgroundColor: '#000000ff',
   borderWidth: 2,
-  borderColor: '#202020ff', // Borde del contenedor
-  width: '100%', // 👈 Ocupa el 80% del ancho de su contenedor (ajusta este %)
-  maxWidth: 320, // 👈 Ancho máximo en píxeles (opcional, para pantallas grandes)
-  alignSelf: 'center', // 👈 Centra horizontalmente
-  overflow: 'hidden', // 👈 ¡Esta línea lo arregla!
+  borderColor: '#202020ff',
+  width: '100%',
+  maxWidth: 320,
+  alignSelf: 'center',
+  overflow: 'hidden',
 },
 
 tabBtn: {
   flex: 1,
   alignItems: 'center',
   justifyContent: 'center',
-  paddingHorizontal: 8, // 👈 Añade un poco de padding horizontal para no apretar el texto
-  // Sin border individual, el borde está en el contenedor
+  paddingHorizontal: 8,
 },
 
 tabBtnActive: {
-  backgroundColor: '#1f1f1fff', // Fondo gris medio para la sección activa
+  backgroundColor: '#1f1f1fff',
 },
 
 tabTxt: {
-  color: '#F3F4F6', // Texto blanco
+  color: '#F3F4F6',
   fontWeight: '600',
   fontSize: 16,
 },
 
 tabTxtActive: {
-  color: '#FFFFFF', // Texto blanco
-  fontWeight: '700', // Negrita para destacar
+  color: '#FFFFFF',
+  fontWeight: '700',
 },
 
   card: {
     backgroundColor: '#010102ff', borderRadius: 14, overflow: 'hidden', borderWidth: 1,
     borderColor: '#181818ff', padding: 12,
   },
-
-  //const C = {/*
-  //bg: '#000000ff',
-  //card: '#010102ff',
-  //cardBorder: '#181818ff',
-  //textPrimary: '#F3F4F6',
-  //textSecondary: '#A1A1AA',
-  //line: '#000000ff',
-  //avatarBg: '#0F1016',
-  //avatarBorder: '#2C2C33',
-  //like: '#ef4444',};
 
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   avatarMini: {
@@ -706,7 +788,6 @@ tabTxtActive: {
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
 
-  // === Sheet styles (igual que en login) ===
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -764,5 +845,68 @@ tabTxtActive: {
   sheetBtnText: { 
     fontWeight: '600', 
     color: '#fff' 
+  },
+
+  avatarPickerSheet: {
+    width: '100%',
+    maxHeight: '75%',
+    backgroundColor: '#121219',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    borderTopWidth: 1,
+    borderColor: '#1F1F27',
+  },
+  avatarPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  avatarPickerTitle: {
+    color: '#F3F4F6',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  avatarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    justifyContent: 'space-between',
+    paddingBottom: 20,
+  },
+  avatarOption: {
+    width: '30%',
+    alignItems: 'center',
+    gap: 8,
+  },
+  avatarOptionImg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: '#1F1F27',
+  },
+  avatarOptionName: {
+    color: '#D1D5DB',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  galleryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1F2937',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  galleryBtnText: {
+    color: '#F3F4F6',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

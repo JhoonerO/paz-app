@@ -21,12 +21,10 @@ import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 
-
 type Params = {
   id: string;
   source?: 'home' | 'profile' | 'notifications';
 };
-
 
 type Comment = {
   id: string;
@@ -37,15 +35,12 @@ type Comment = {
   createdAt: number;
 };
 
-
 export default function StoryDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id, source } = useLocalSearchParams<Params>();
 
-
   const storyId = useMemo(() => id ?? String(Date.now()), [id]);
-
 
   const [likeCount, setLikeCount] = useState<number>(0);
   const [liked, setLiked] = useState<boolean>(false);
@@ -54,26 +49,57 @@ export default function StoryDetail() {
   const [initialCommentCount, setInitialCommentCount] = useState<number>(0);
   const [sendingComment, setSendingComment] = useState(false);
 
-
   const [storyTitle, setStoryTitle] = useState<string>('Cargando...');
   const [storyBody, setStoryBody] = useState<string>('Cargando historia...');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState<string>('Autor');
 
-
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedComment, setSelectedComment] = useState<Comment | null>(null);
 
-  // Estado para controlar la altura del teclado
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [showDeleteStoryModal, setShowDeleteStoryModal] = useState(false);
+  const [deletingStory, setDeletingStory] = useState(false);
+
+  // 👇 ESTADO PARA NOTIFICACIONES ELEGANTES (SHEET)
+  const [showSheet, setShowSheet] = useState(false);
+  const [sheet, setSheet] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    onConfirm: () => void;
+    variant: 'info' | 'error';
+  }>({
+    title: '',
+    message: '',
+    confirmText: 'Cerrar',
+    onConfirm: () => setShowSheet(false),
+    variant: 'info',
+  });
+
+  function showNotification(
+    title: string,
+    message: string,
+    variant: 'info' | 'error' = 'info',
+    confirmText = 'Cerrar',
+    onConfirm?: () => void
+  ) {
+    setSheet({
+      title,
+      message,
+      confirmText,
+      variant,
+      onConfirm: onConfirm || (() => setShowSheet(false)),
+    });
+    setShowSheet(true);
+  }
+
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-
-  // Escuchar eventos del teclado
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
@@ -95,7 +121,6 @@ export default function StoryDetail() {
     };
   }, []);
 
-
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -104,6 +129,20 @@ export default function StoryDetail() {
     fetchUser();
   }, []);
 
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (!userId) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', userId)
+        .single();
+      
+      setIsAdmin(data?.is_admin ?? false);
+    };
+    
+    if (userId) checkAdmin();
+  }, [userId]);
 
   useEffect(() => {
     const loadStory = async () => {
@@ -122,7 +161,6 @@ export default function StoryDetail() {
         .eq('id', storyId)
         .maybeSingle();
 
-
       if (!error && data) {
         setStoryTitle(data.title || 'Historia');
         setStoryBody(data.body || 'Sin contenido.');
@@ -139,10 +177,8 @@ export default function StoryDetail() {
       setLoading(false);
     };
 
-
     loadStory();
   }, [storyId]);
-
 
   const fetchComments = useCallback(async () => {
     const { data: rows } = await supabase
@@ -151,12 +187,10 @@ export default function StoryDetail() {
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
-
     if (!rows) {
       setCommentList([]);
       return;
     }
-
 
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
     const { data: profiles } = await supabase
@@ -164,9 +198,7 @@ export default function StoryDetail() {
       .select('id, display_name, avatar_url')
       .in('id', userIds);
 
-
     const map = new Map(profiles?.map(p => [p.id, p]) ?? []);
-
 
     const comments = rows.map((c: any) => ({
       id: c.id,
@@ -177,15 +209,12 @@ export default function StoryDetail() {
       createdAt: new Date(c.created_at).getTime(),
     }));
 
-
     setCommentList(comments);
   }, [storyId]);
-
 
   useEffect(() => {
     fetchComments();
   }, [storyId, fetchComments]);
-
 
   async function handleDeleteComment(commentId: string) {
     try {
@@ -197,7 +226,6 @@ export default function StoryDetail() {
     }
   }
 
-
   function confirmDelete(comment: Comment) {
     const canDelete = userId === comment.userId || userId === storyAuthorId;
     if (!canDelete) return;
@@ -205,17 +233,18 @@ export default function StoryDetail() {
     setShowDeleteModal(true);
   }
 
-
   async function toggleLike() {
     if (!userId) {
-      alert('Debes iniciar sesión para dar like');
+      showNotification(
+        'Sesión requerida',
+        'Debes iniciar sesión para dar like a las historias.',
+        'info'
+      );
       return;
     }
 
-
     setLiked(prev => !prev);
     setLikeCount(prev => (liked ? prev - 1 : prev + 1));
-
 
     if (liked) {
       await unlike(storyId);
@@ -224,11 +253,9 @@ export default function StoryDetail() {
     }
   }
 
-
   async function addComment() {
     const text = commentInput.trim();
     if (!text || sendingComment) return;
-
 
     setSendingComment(true);
     try {
@@ -237,21 +264,63 @@ export default function StoryDetail() {
       setCommentInput('');
       Keyboard.dismiss();
     } catch {
-      alert('No se pudo guardar el comentario');
+      showNotification(
+        'Error',
+        'No se pudo guardar el comentario. Intenta de nuevo.',
+        'error'
+      );
     } finally {
       setSendingComment(false);
     }
   }
-
 
   function handleBack() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   }
 
+  async function handleDeleteStory() {
+    if (!userId || deletingStory) return;
+    
+    const canDelete = userId === storyAuthorId || isAdmin;
+    if (!canDelete) {
+      showNotification(
+        'Sin permiso',
+        'No tienes permiso para eliminar esta historia.',
+        'error'
+      );
+      return;
+    }
+
+    setDeletingStory(true);
+    try {
+      const { error } = await supabase
+        .from('stories')
+        .delete()
+        .eq('id', storyId);
+      
+      if (error) throw error;
+      
+      setShowDeleteStoryModal(false);
+      showNotification(
+        'Listo',
+        'La historia ha sido eliminada correctamente.',
+        'info',
+        'Cerrar',
+        handleBack
+      );
+    } catch (error) {
+      showNotification(
+        'Error',
+        'No se pudo eliminar la historia. Intenta de nuevo.',
+        'error'
+      );
+      setDeletingStory(false);
+      setShowDeleteStoryModal(false);
+    }
+  }
 
   const displayCommentCount = commentList.length || initialCommentCount;
-
 
   if (loading) {
     return (
@@ -261,20 +330,28 @@ export default function StoryDetail() {
     );
   }
 
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#030000ff' }}>
-      {/* Header fijo */}
       <View style={[s.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={handleBack} hitSlop={10} style={s.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>{storyTitle}</Text>
-        <View style={{ width: 32 }} />
+        
+        {(userId === storyAuthorId || isAdmin) && (
+          <TouchableOpacity 
+            onPress={() => setShowDeleteStoryModal(true)} 
+            hitSlop={10}
+            style={s.deleteBtn}
+          >
+            <Ionicons name="trash-outline" size={22} color="#ef4444" />
+          </TouchableOpacity>
+        )}
+        
+        {!(userId === storyAuthorId || isAdmin) && <View style={{ width: 32 }} />}
       </View>
 
       <View style={{ flex: 1 }}>
-        {/* ScrollView con el contenido */}
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={[s.content, { paddingBottom: 80 }]}
@@ -283,10 +360,8 @@ export default function StoryDetail() {
         >
           {storyCover && <Image source={{ uri: storyCover }} style={s.coverImg} />}
 
-
           <Text style={s.bodyText}>{storyBody}</Text>
           <Text style={s.author}>— {authorName}</Text>
-
 
           <View style={s.metrics}>
             <TouchableOpacity style={s.iconRow} onPress={toggleLike}>
@@ -302,7 +377,6 @@ export default function StoryDetail() {
               <Text style={s.metricTxt}>{displayCommentCount}</Text>
             </View>
           </View>
-
 
           <View style={{ gap: 8, marginTop: 4 }}>
             {commentList.map(c => (
@@ -330,8 +404,6 @@ export default function StoryDetail() {
           </View>
         </ScrollView>
 
-
-        {/* Barra fija que sube exactamente con el teclado */}
         <View 
           style={[
             s.inputBar, 
@@ -363,7 +435,6 @@ export default function StoryDetail() {
         </View>
       </View>
 
-
       {/* Modal eliminar comentario */}
       <Modal visible={showDeleteModal} transparent animationType="fade">
         <View style={s.modalOverlay}>
@@ -373,7 +444,6 @@ export default function StoryDetail() {
               ¿Seguro que quieres eliminar este comentario?
             </Text>
 
-
             <View style={s.modalButtons}>
               <TouchableOpacity
                 onPress={() => setShowDeleteModal(false)}
@@ -381,7 +451,6 @@ export default function StoryDetail() {
               >
                 <Text style={s.modalBtnText}>Cancelar</Text>
               </TouchableOpacity>
-
 
               <TouchableOpacity
                 onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
@@ -393,10 +462,86 @@ export default function StoryDetail() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal eliminar historia */}
+      <Modal visible={showDeleteStoryModal} transparent animationType="fade">
+        <View style={s.modalOverlay}>
+          <View style={s.modalBox}>
+            <View style={s.iconWrapDelete}>
+              <Ionicons name="warning" size={28} color="#ef4444" />
+            </View>
+            
+            <Text style={s.modalTitle}>Eliminar historia</Text>
+            <Text style={s.modalText}>
+              Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar esta historia?
+            </Text>
+
+            <View style={s.modalButtons}>
+              <TouchableOpacity
+                onPress={() => setShowDeleteStoryModal(false)}
+                style={[s.modalBtn, { backgroundColor: '#333' }]}
+                disabled={deletingStory}
+              >
+                <Text style={s.modalBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleDeleteStory}
+                style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
+                disabled={deletingStory}
+              >
+                {deletingStory ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 👇 SHEET ELEGANTE PARA NOTIFICACIONES */}
+      <Modal
+        visible={showSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSheet(false)}
+      >
+        <View style={s.overlay}>
+          <View style={s.sheet}>
+            <View
+              style={[
+                s.iconWrap,
+                sheet.variant === 'error'
+                  ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
+                  : { backgroundColor: '#1F2937', borderColor: '#374151' },
+              ]}
+            >
+              <Ionicons
+                name={sheet.variant === 'error' ? 'alert-circle' : 'checkmark-circle'}
+                size={24}
+                color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
+              />
+            </View>
+
+            <Text style={s.sheetTitle}>{sheet.title}</Text>
+            <Text style={s.sheetMsg}>{sheet.message}</Text>
+
+            <View style={s.sheetActions}>
+              <TouchableOpacity
+                style={[s.sheetBtn, s.sheetBtnPrimary]}
+                onPress={sheet.onConfirm}
+              >
+                <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
-
 
 const s = StyleSheet.create({
   header: {
@@ -445,7 +590,6 @@ const s = StyleSheet.create({
   commentAuthor: { color: '#fff', fontWeight: '600' },
   commentText: { color: '#d0d1d1ff' },
 
-
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -456,7 +600,6 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1F1F27',
   },
-
 
   input: {
     flex: 1,
@@ -488,4 +631,82 @@ const s = StyleSheet.create({
   modalButtons: { flexDirection: 'row', gap: 10 },
   modalBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
   modalBtnText: { color: '#f3f4f6', fontSize: 15, fontWeight: '600' },
+  
+  deleteBtn: { 
+    width: 32, 
+    height: 32, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  iconWrapDelete: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#2D1515',
+    borderWidth: 1,
+    borderColor: '#5F1515',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  // 👇 ESTILOS DEL SHEET ELEGANTE
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    width: '100%',
+    backgroundColor: '#121219',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    borderTopWidth: 1,
+    borderColor: '#1F1F27',
+  },
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  sheetTitle: { 
+    color: '#F3F4F6', 
+    fontWeight: '700', 
+    fontSize: 18, 
+    textAlign: 'center' 
+  },
+  sheetMsg: { 
+    color: '#D1D5DB', 
+    textAlign: 'center', 
+    marginTop: 6 
+  },
+  sheetActions: { 
+    flexDirection: 'row', 
+    gap: 10, 
+    marginTop: 16, 
+    justifyContent: 'center' 
+  },
+  sheetBtn: {
+    height: 44,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  sheetBtnPrimary: { 
+    backgroundColor: '#1F2937', 
+    borderColor: '#27272A' 
+  },
+  sheetBtnText: { 
+    fontWeight: '600', 
+    color: '#fff' 
+  },
 });
