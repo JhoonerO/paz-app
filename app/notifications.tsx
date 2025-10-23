@@ -114,11 +114,20 @@ export default function NotificationsScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0B0B0F' }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000ff' }} edges={['top', 'bottom']}>
       <View
         style={[s.header, { paddingTop: insets.top, height: insets.top + HEADER_BAR }]}
       >
-        <Text style={s.headerTitle}>Notificaciones</Text>
+        <Text
+      style={{
+        fontFamily: 'Risque_400Regular',
+        fontSize: 22,
+        color: '#F3F4F6',
+        letterSpacing: 1,
+      }}
+    >
+      Notificaciones
+    </Text>
         <View style={{ width: 32 }} />
       </View>
 
@@ -130,9 +139,17 @@ export default function NotificationsScreen() {
         renderItem={({ item }) => <NotificationRow item={item} />}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
-            No tienes notificaciones.
-          </Text>
+          <Text
+      style={{
+        fontFamily: 'Risque_400Regular',
+        fontSize: 22,
+        color: '#F3F4F6',
+        letterSpacing: 1,
+        textAlign: 'center',
+      }}
+    >
+      No tienes notificaciones.
+    </Text>
         }
       />
     </SafeAreaView>
@@ -221,9 +238,9 @@ function timeAgo(ts: number) {
 
 const s = StyleSheet.create({
   header: {
-    backgroundColor: '#121219',
+    backgroundColor: '#000000ff',
     borderBottomWidth: 1,
-    borderBottomColor: '#1F1F27',
+
     paddingHorizontal: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -233,10 +250,21 @@ const s = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
+
+  //bg: '#000000ff',
+  //card: '#010102ff',
+  //cardBorder: '#181818ff',
+  //textPrimary: '#F3F4F6',
+  //textSecondary: '#A1A1AA',
+  //line: '#000000ff',
+  //avatarBg: '#0F1016',
+  //avatarBorder: '#2C2C33',
+  //like: '#ef4444',
+
   row: {
-    backgroundColor: '#121219',
+    backgroundColor: '#010102ff',
     borderWidth: 1,
-    borderColor: '#1F1F27',
+    borderColor: '#181818ff',
     borderRadius: 12,
     padding: 12,
     flexDirection: 'row',

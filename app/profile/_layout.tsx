@@ -1,16 +1,14 @@
-// app/profile/_layout.tsx
 import { Stack } from 'expo-router';
-import { Platform } from 'react-native';
+import { useSegments } from 'expo-router';
 
 export default function ProfileLayout() {
+  const segments = useSegments();
+  const isSettings = segments.includes('settings');
+
   return (
     <Stack
       screenOptions={{
-        headerShown: true,
-        headerTitle: 'PAZ',
-        headerTintColor: '#F3F4F6',
-        headerStyle: { backgroundColor: '#121219' },
-        headerShadowVisible: Platform.OS === 'ios',
+        headerShown: !isSettings, // oculta el header solo en settings
       }}
     />
   );

@@ -110,14 +110,9 @@ export default function CreateScreen() {
   const HEADER_H = 56;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0B0B0F' }} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        {/* Header */}
-        <View style={[s.header, { paddingTop: insets.top, height: insets.top + HEADER_H }]}>
-          <Text style={s.headerTitle}>Crear Historia</Text>
-          <View style={{ width: 32 }} />
-        </View>
-
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000ff' }} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView style={{ flex: 10 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+       
         <View style={s.container}>
           {/* Portada (opcional) */}
           <TouchableOpacity style={s.imagePicker} onPress={pickImage} activeOpacity={0.8}>
@@ -179,7 +174,7 @@ const s = StyleSheet.create({
   header: {
     backgroundColor: '#121219',
     borderBottomWidth: 1,
-    borderBottomColor: '#1F1F27',
+    borderBottomColor: '#010102ff',
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -188,12 +183,12 @@ const s = StyleSheet.create({
 
   container: { padding: 16, gap: 12 },
 
-  imagePicker: { borderWidth: 1, borderColor: '#1F1F27', borderRadius: 12, overflow: 'hidden' },
+  imagePicker: { borderWidth: 1, borderColor: '#181818ff', borderRadius: 12, overflow: 'hidden' },
   cover: { width: '100%', aspectRatio: 16 / 9 },
   coverPlaceholder: {
     width: '100%',
     aspectRatio: 16 / 9,
-    backgroundColor: '#0F1016',
+    backgroundColor: '#010102ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -201,7 +196,7 @@ const s = StyleSheet.create({
   input: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#27272A',
+    borderColor: '#181818ff',
     borderRadius: 10,
     paddingHorizontal: 14,
     color: '#F3F4F6',
@@ -211,9 +206,9 @@ const s = StyleSheet.create({
 
   btn: {
     marginTop: 6,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#3b3b3bff',
     borderWidth: 1,
-    borderColor: '#27272A',
+    borderColor: '#010102ff',
     height: 48,
     borderRadius: 10,
     alignItems: 'center',

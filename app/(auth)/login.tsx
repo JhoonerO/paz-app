@@ -10,6 +10,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Image,
+  Pressable,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +19,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../lib/supabase';
 
 const KEY_SESSION = 'session_active';
+
+// 🎨 Paleta idéntica a la del feed
+const C = {
+  bg: '#000000ff',
+  card: '#010102ff',
+  cardBorder: '#181818ff',
+  textPrimary: '#F3F4F6',
+  textSecondary: '#A1A1AA',
+  line: '#000000ff',
+  avatarBg: '#0F1016',
+  avatarBorder: '#2C2C33',
+  like: '#ef4444',
+};
 
 export default function Login() {
   const router = useRouter();
@@ -54,7 +69,7 @@ export default function Login() {
       setSheet({
         title: 'Correo reenviado',
         message:
-          'Te enviamos un nuevo correo de verificación. Revisa tu bandeja de Gmail y confirma tu cuenta.',
+          'Te enviamos un nuevo correo de verificación. Revisa tu bandeja y confirma tu cuenta.',
         confirmText: 'Cerrar',
         onConfirm: () => setShowSheet(false),
         variant: 'info',
@@ -107,7 +122,7 @@ export default function Login() {
           setSheet({
             title: 'Correo no confirmado',
             message:
-              'Revisa tu bandeja de Gmail para confirmar tu cuenta. Si no ves el correo, toca el botón de abajo para reenviarlo.',
+              'Revisa tu correo para confirmar tu cuenta. Si no lo ves, toca “Reenviar correo”.',
             confirmText: 'Reenviar correo',
             onConfirm: () => {
               setShowSheet(false);
@@ -161,16 +176,27 @@ export default function Login() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#0B0B0F' }}
+      style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <Image
+  source={require('../../assets/LoginSc.png')}
+  style={s.bgImg}
+/>
       <View style={s.wrap}>
-        <View style={s.logo} />
+        {/* Logo */}
+        <View style={s.logoFrame}>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={s.logoImg}
+            resizeMode="contain"
+          />
+        </View>
 
         <View style={s.card}>
           <TextInput
             placeholder="Correo"
-            placeholderTextColor="#6B7280"
+            placeholderTextColor={C.textSecondary}
             style={s.input}
             autoCapitalize="none"
             autoCorrect={false}
@@ -180,12 +206,13 @@ export default function Login() {
             returnKeyType="next"
           />
 
-          <View style={{ position: 'relative', marginTop: 12 }}>
+          {/* Contraseña centrada */}
+          <View style={s.pwdWrap}>
             <TextInput
               placeholder="Contraseña"
-              placeholderTextColor="#6B7280"
+              placeholderTextColor={C.textSecondary}
               secureTextEntry={!showPass}
-              style={[s.input, { paddingRight: 44 }]}
+              style={[s.input, s.inputPwd]}
               value={pass}
               onChangeText={setPass}
               autoCapitalize="none"
@@ -201,7 +228,7 @@ export default function Login() {
               <Ionicons
                 name={showPass ? 'eye-off-outline' : 'eye-outline'}
                 size={20}
-                color="#C1C1C7"
+                color={C.textSecondary}
               />
             </TouchableOpacity>
           </View>
@@ -213,12 +240,15 @@ export default function Login() {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#F3F4F6" />
+              <ActivityIndicator color={C.textPrimary} />
             ) : (
               <Text style={s.btnText}>Iniciar sesión</Text>
             )}
           </TouchableOpacity>
+        </View>
 
+        {/* Footer fijo */}
+        <View style={s.footer}>
           <Text style={s.footerText}>
             ¿No tienes una cuenta?{' '}
             <Link href="/(auth)/register" style={s.link}>
@@ -236,13 +266,14 @@ export default function Login() {
         onRequestClose={() => setShowSheet(false)}
       >
         <View style={s.overlay}>
+          <Pressable style={s.backdrop} onPress={() => setShowSheet(false)} />
           <View style={s.sheet}>
             <View
               style={[
                 s.iconWrap,
                 sheet.variant === 'error'
                   ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
-                  : { backgroundColor: '#1F2937', borderColor: '#374151' },
+                  : { backgroundColor: C.avatarBg, borderColor: C.avatarBorder },
               ]}
             >
               <Ionicons
@@ -260,7 +291,7 @@ export default function Login() {
                 style={[s.sheetBtn, s.sheetBtnPrimary]}
                 onPress={sheet.onConfirm}
               >
-                <Text style={[s.sheetBtnText, { color: '#fff' }]}>{sheet.confirmText}</Text>
+                <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -271,80 +302,122 @@ export default function Login() {
 }
 
 const s = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    backgroundColor: '#0B0B0F',
-    padding: 20,
+ wrap: {
+  flex: 1,
+  backgroundColor: 'rgba(0, 0, 0, 0.45)', // fondo semitransparente sobre la imagen
+  padding: 20,
+  justifyContent: 'center',
+},
+
+  logoFrame: {
+    alignSelf: 'center',
+    marginBottom: 1,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  logo: {
-    alignSelf: 'center',
-    width: 96,
-    height: 96,
-    borderRadius: 12,
-    backgroundColor: '#1F2937',
-    marginBottom: 28,
-  },
+  logoImg: { width: 250, height: 250 },
+
   card: { gap: 0 },
+
   input: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#27272A',
+    backgroundColor: '#0f0f0fff',
+    borderWidth: 0,
     borderRadius: 10,
     paddingHorizontal: 16,
     height: 48,
     color: '#F3F4F6',
+    textAlign: 'center',
+    width: '100%',
+    alignSelf: 'center',
+  },
+  inputPwd: {
+    width: '125%',
+  alignSelf: 'center',
+  backgroundColor: '#0f0f0fff',
+  borderRadius: 10,
+  height: 48,
+  color: '#F3F4F6',
+  textAlign: 'center',
+  paddingHorizontal: 16,
+  },
+  pwdWrap: {
+    position: 'relative',
+    marginTop: 12,
+    width: '80%',
+    alignSelf: 'center',
   },
   eyeBtn: {
     position: 'absolute',
-    right: 12,
+    right: -20  ,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
+
   btn: {
-    marginTop: 16,
-    backgroundColor: '#1F2937',
+    marginTop: 50,
     height: 48,
+    width: '50%',
     borderRadius: 10,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
     borderWidth: 1,
-    borderColor: '#27272A',
+    borderColor: '#1b1b1bff',
+    backgroundColor: 'transparent',
   },
-  btnText: { color: '#F3F4F6', fontWeight: '600' },
-  footerText: { color: '#A1A1AA', marginTop: 16, textAlign: 'center' },
-  link: { color: '#4F46E5' },
+  btnText: { color: C.textPrimary, fontWeight: '600' },
+
+  // ✅ Footer fijo
+  footer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 24,
+    alignItems: 'center',
+  },
+  footerText: { color: C.textSecondary, textAlign: 'center' },
+  link: { color: C.textPrimary, textDecorationLine: 'underline' },
 
   // Sheet styles
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
     justifyContent: 'flex-end',
   },
+  backdrop: { flex: 1 },
   sheet: {
     width: '100%',
-    backgroundColor: '#121219',
+    backgroundColor: C.card,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 16,
     borderTopWidth: 1,
-    borderColor: '#1F1F27',
+    borderColor: C.cardBorder,
   },
   iconWrap: {
     width: 44,
     height: 44,
     borderRadius: 22,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
     alignSelf: 'center',
     marginBottom: 8,
   },
-  sheetTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, textAlign: 'center' },
-  sheetMsg: { color: '#D1D5DB', textAlign: 'center', marginTop: 6 },
-  sheetActions: { flexDirection: 'row', gap: 10, marginTop: 16, justifyContent: 'center' },
+  sheetTitle: {
+    color: C.textPrimary,
+    fontWeight: '700',
+    fontSize: 18,
+    textAlign: 'center',
+  },
+  sheetMsg: { color: C.textSecondary, textAlign: 'center', marginTop: 6 },
+  sheetActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    justifyContent: 'center',
+  },
   sheetBtn: {
     height: 44,
     paddingHorizontal: 24,
@@ -353,6 +426,10 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  sheetBtnPrimary: { backgroundColor: '#1F2937', borderColor: '#27272A' },
-  sheetBtnText: { fontWeight: '600' },
+  bgImg: {
+  ...StyleSheet.absoluteFillObject,
+  opacity: 1,        // ajusta visibilidad
+},
+  sheetBtnPrimary: { backgroundColor: C.avatarBg, borderColor: C.avatarBorder },
+  sheetBtnText: { fontWeight: '600', color: '#fff' },
 });

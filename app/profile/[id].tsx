@@ -4,6 +4,7 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert } from
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useNavigation, useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
 type DBStory = {
   id: string;
@@ -30,6 +31,7 @@ export default function PublicProfile() {
   const navigation = useNavigation();
   const router = useRouter();
   const { id: profileId } = useLocalSearchParams<{ id: string }>();
+  const [fontsLoaded] = useFonts({ Risque_400Regular });
 
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -42,14 +44,38 @@ export default function PublicProfile() {
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
   useLayoutEffect(() => {
+    if (!fontsLoaded) return;
+
     navigation.setOptions({
-      headerShown: true,
-      headerTitle: 'PAZ',
+      headerTitle: () => (
+        <Text
+          style={{
+            fontFamily: 'Risque_400Regular',
+            fontSize: 22,
+            color: '#F3F4F6',
+            letterSpacing: 1,
+          }}
+        >
+          U-PAZ
+        </Text>
+      ),
+      headerTitleAlign: 'center',
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={() => router.push('/')}
+          hitSlop={10}
+          style={{ paddingHorizontal: 16, paddingVertical: 8 }}
+        >
+          <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
+        </TouchableOpacity>
+      ),
       headerRight: () => null,
+      headerStyle: {
+        backgroundColor: '#000000ff',
+      },
       headerTintColor: '#F3F4F6',
-      headerStyle: { backgroundColor: '#121219' },
     });
-  }, [navigation]);
+  }, [navigation, router, fontsLoaded]);
 
   const loadFromSupabase = useCallback(async () => {
     try {
@@ -59,7 +85,6 @@ export default function PublicProfile() {
       const uidViewer = authData.user?.id ?? null;
       setViewerId(uidViewer);
 
-      // Perfil visitado
       const { data: prof, error: profErr } = await supabase
         .from('profiles')
         .select('id, display_name, avatar_url, likes_public')
@@ -71,7 +96,6 @@ export default function PublicProfile() {
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
 
-      // Historias del usuario visitado
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
         .select(`
@@ -83,7 +107,6 @@ export default function PublicProfile() {
         .order('created_at', { ascending: false });
       if (mineErr) throw mineErr;
 
-      // ✅ Normaliza 'profiles' (puede venir como objeto o como array)
       const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
 
       const storiesWithAuthor: DBStory[] = (mine ?? []).map((story: any) => {
@@ -91,7 +114,6 @@ export default function PublicProfile() {
         const current = embeddedArr[0];
 
         if (!current) {
-          // no hay embed: backfill con datos del perfil visitado
           return {
             ...story,
             profiles: [
@@ -103,7 +125,6 @@ export default function PublicProfile() {
           };
         }
 
-        // hay embed pero incompleto: refuerza con datos del perfil visitado
         if (current.avatar_url == null || current.display_name == null) {
           return {
             ...story,
@@ -116,12 +137,10 @@ export default function PublicProfile() {
           };
         }
 
-        // embed correcto: garantiza que sea array
         return { ...story, profiles: embeddedArr };
       });
       setStories(storiesWithAuthor);
 
-      // Likes del usuario visitado (si son públicos)
       let likedList: DBStory[] = [];
       if (prof?.likes_public) {
         const { data: likeRows, error: likeErr } = await supabase
@@ -151,8 +170,6 @@ export default function PublicProfile() {
           likedList = (liked ?? []).map((story: any) => {
             const embeddedArr = toArray(story.profiles);
             let current = embeddedArr[0];
-
-            // base
             let out: DBStory = { ...story, liked_at: likedAtMap.get(story.id) };
 
             if (!current) {
@@ -170,7 +187,6 @@ export default function PublicProfile() {
             return out;
           });
 
-          // Refuerza los avatares con perfiles reales y el del usuario visitado cuando aplique
           const authorIds = Array.from(new Set(likedList.map(s => s.author_id)));
           if (authorIds.length) {
             const { data: authorProfiles } = await supabase
@@ -186,7 +202,6 @@ export default function PublicProfile() {
             likedList = likedList.map(st => {
               const current = Array.isArray(st.profiles) ? st.profiles[0] : (st.profiles as any) || null;
 
-              // si el autor es el usuario visitado → usa su avatar/nombre
               if (st.author_id === prof.id) {
                 return {
                   ...st,
@@ -224,7 +239,6 @@ export default function PublicProfile() {
       }
       setLikedStories(likedList);
 
-      // Likes del visitante (para corazón rojo)
       if (uidViewer) {
         const allIds = [...storiesWithAuthor.map(s => s.id), ...likedList.map(s => s.id)];
         const unique = Array.from(new Set(allIds));
@@ -281,7 +295,6 @@ export default function PublicProfile() {
 
   return (
     <View style={s.screen}>
-      {/* Avatar + nombre — mismos márgenes; SIN botón de cámara */}
       <View style={s.avatarRow}>
         <View style={s.avatarWrap}>
           {avatarUrl ? <Image source={{ uri: avatarUrl }} style={s.avatar} /> : <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />}
@@ -289,26 +302,29 @@ export default function PublicProfile() {
         <Text style={s.name}>{displayName}</Text>
       </View>
 
-      {/* Tabs — mismos estilos */}
       <View style={s.tabs}>
-        <TouchableOpacity onPress={() => setTab('mine')} style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}>
-          <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
-            {`Mis Historias ${stories.length}`}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => likesPublic && setTab('likes')}
-          style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#374151' }]}
-          disabled={!likesPublic}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
-            {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
-          </View>
-        </TouchableOpacity>
+        <View style={s.tabBtnContainer}>
+          <TouchableOpacity 
+            onPress={() => setTab('mine')} 
+            style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
+          >
+            <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
+              {`Mis Historias ${stories.length}`}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => likesPublic && setTab('likes')}
+            style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
+            disabled={!likesPublic}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
+              {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Lista */}
       <FlatList
         data={listData}
         keyExtractor={(it) => it.id}
@@ -345,8 +361,6 @@ function PublicStoryCard({
   viewerId: string | null;
 }) {
   const hasCover = !!item.cover_url;
-
-  // ✅ Lee el primer profile de forma segura aunque venga como objeto
   const profile0: any = Array.isArray(item.profiles)
     ? item.profiles?.[0]
     : (item.profiles as any) || null;
@@ -399,7 +413,7 @@ function PublicStoryCard({
           </TouchableOpacity>
 
           <View style={[s.meta, { marginLeft: 12 }]}>
-            <Ionicons name="chatbubble-outline" size={16} color="#F3F4F6" />
+            <Ionicons name="chatbox-outline" size={16} color="#F3F4F6" />
             <Text style={s.metaTxt}>{item.comments_count ?? 0}</Text>
           </View>
         </View>
@@ -409,7 +423,7 @@ function PublicStoryCard({
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0B0B0F' },
+  screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -422,19 +436,30 @@ const s = StyleSheet.create({
     width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F',
   },
   name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700', flex: 1 },
-
-  tabs: { marginTop: 24, paddingHorizontal: 16, flexDirection: 'row', gap: 10 },
-  tabBtn: {
-    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#27272A',
-    backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center',
+  tabs: { marginTop: 24, paddingHorizontal: 16 },
+  tabBtnContainer: {
+    flexDirection: 'row',
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#000000ff',
+    borderWidth: 2,
+    borderColor: '#202020ff',
+    width: '100%',
+    maxWidth: 320,
+    alignSelf: 'center',
+    overflow: 'hidden',
   },
-  tabBtnActive: { backgroundColor: '#1F2937', borderColor: '#27272A' },
-  tabTxt: { color: '#C9C9D1', fontWeight: '600' },
-  tabTxtActive: { color: '#F3F4F6' },
-
+  tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  tabBtnActive: { backgroundColor: '#1f1f1fff' },
+  tabTxt: { color: '#F3F4F6', fontWeight: '600', fontSize: 16 },
+  tabTxtActive: { color: '#FFFFFF', fontWeight: '700' },
   card: {
-    backgroundColor: '#121219', borderRadius: 14, overflow: 'hidden', borderWidth: 1,
-    borderColor: '#1F1F27', padding: 12,
+    backgroundColor: '#010102ff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#181818ff',
+    padding: 12,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   avatarMini: {
@@ -447,7 +472,7 @@ const s = StyleSheet.create({
   excerpt: { color: '#D1D5DB' },
   footerRow: {
     marginTop: 8, flexDirection: 'row', alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: '#1F1F27', paddingTop: 8,
+    borderTopWidth: 1, borderTopColor: '#010102ff', paddingTop: 8,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },

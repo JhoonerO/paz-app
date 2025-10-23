@@ -18,6 +18,19 @@ type DBStory = {
   profiles: { avatar_url: string | null }[] | null;
 };
 
+// 🎨 Paleta (igual al Figma)
+const C = {
+  bg: '#000000ff',
+  card: '#010102ff',
+  cardBorder: '#181818ff',
+  textPrimary: '#F3F4F6',
+  textSecondary: '#A1A1AA',
+  line: '#000000ff',
+  avatarBg: '#0F1016',
+  avatarBorder: '#2C2C33',
+  like: '#ef4444',
+};
+
 export default function Feed() {
   const [stories, setStories] = useState<DBStory[]>([]);
   const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
@@ -43,7 +56,7 @@ export default function Feed() {
       setUserAvatar(null);
     }
 
-    // 1) Traer historias + embed (puede venir vacío a veces)
+    // 1) Traer historias + embed
     const { data: rows, error } = await supabase
       .from('stories')
       .select(`
@@ -91,14 +104,13 @@ export default function Feed() {
         avatarMap.get(st.author_id) ??
         null;
 
-      // si ya trae embed válido, lo dejamos; si no, inyectamos fallback
       if (embedded) return st;
       return { ...st, profiles: [{ avatar_url: fallback }] };
     });
 
     setStories(normalized);
 
-    // 4) Mis likes (para pintar corazón)
+    // 4) Mis likes
     if (uid && normalized.length) {
       const ids = normalized.map(r => r.id);
       const { data: likeRows, error: likeErr } = await supabase
@@ -118,7 +130,6 @@ export default function Feed() {
   }
 
   useEffect(() => { loadFeed(); }, []);
-
   useFocusEffect(useCallback(() => { loadFeed(); }, []));
 
   const onRefresh = useCallback(async () => {
@@ -133,8 +144,8 @@ export default function Feed() {
         data={stories}
         keyExtractor={(it) => it.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#F3F4F6" />}
+        ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textPrimary} />}
         renderItem={({ item }) => (
           <StoryCard
             item={item}
@@ -178,7 +189,11 @@ export default function Feed() {
             }}
           />
         )}
-        ListEmptyComponent={<Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>Aún no hay historias.</Text>}
+        ListEmptyComponent={
+          <Text style={{ color: C.textSecondary, textAlign: 'center', marginTop: 24 }}>
+            Aún no hay historias.
+          </Text>
+        }
         showsVerticalScrollIndicator={false}
       />
     </View>
@@ -214,8 +229,8 @@ function StoryCard({
           {avatar ? (
             <Image source={{ uri: avatar }} style={s.avatar} />
           ) : (
-            <View style={[s.avatar, { backgroundColor: '#374151', borderWidth: 1, borderColor: '#6B7280', alignItems: 'center', justifyContent: 'center' }]}>
-              <Ionicons name="person-outline" size={14} color="#9CA3AF" />
+            <View style={[s.avatar, { backgroundColor: C.avatarBg, borderWidth: 1, borderColor: C.avatarBorder, alignItems: 'center', justifyContent: 'center' }]}>
+              <Ionicons name="person-outline" size={14} color={C.textSecondary} />
             </View>
           )}
           <Text style={s.author}>{author}</Text>
@@ -253,11 +268,11 @@ function StoryCard({
         {/* Métricas + like */}
         <View style={s.footerRow}>
           <TouchableOpacity style={s.meta} onPress={() => onToggleLike(item.id)} activeOpacity={0.8}>
-            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={16} color={liked ? '#ef4444' : '#F3F4F6'} />
-            <Text style={[s.metaTxt, liked && { color: '#ef4444' }]}>{item.likes_count ?? 0}</Text>
+            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={16} color={liked ? C.like : C.textSecondary} />
+            <Text style={[s.metaTxt, liked && { color: C.like }]}>{item.likes_count ?? 0}</Text>
           </TouchableOpacity>
           <View style={[s.meta, { marginLeft: 12 }]}>
-            <Ionicons name="chatbubble-outline" size={16} color="#F3F4F6" />
+            <Ionicons name="chatbox-outline" size={16} color={C.textSecondary} />
             <Text style={s.metaTxt}>{item.comments_count ?? 0}</Text>
           </View>
         </View>
@@ -267,29 +282,29 @@ function StoryCard({
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0B0B0F' },
+  screen: { flex: 1, backgroundColor: C.bg },
   card: {
-    backgroundColor: '#121219',
-    borderRadius: 14,
+    backgroundColor: C.card,
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#1F1F27',
+    borderColor: C.cardBorder,
     padding: 12,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  avatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#0F1016', borderWidth: 1, borderColor: '#1F1F27' },
-  author: { color: '#E5E7EB', fontWeight: '600' },
-  cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
-  cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
-  excerpt: { color: '#D1D5DB' },
+  avatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.avatarBg, borderWidth: 1, borderColor: C.avatarBorder },
+  author: { color: C.textPrimary, fontWeight: '600' },
+  cardTitle: { color: C.textPrimary, fontWeight: '700', fontSize: 18, marginBottom: 8 },
+  cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, marginBottom: 8 },
+  excerpt: { color: '#E4E4E7', lineHeight: 20 },
   footerRow: {
     marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#1F1F27',
+    borderTopColor: C.line,
     paddingTop: 8,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaTxt: { color: '#F3F4F6' },
+  metaTxt: { color: C.textSecondary },
 });

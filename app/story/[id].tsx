@@ -19,6 +19,7 @@ import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import { createNotification } from '../../lib/notifications';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5'
 
 type Params = {
   id: string;
@@ -278,7 +279,7 @@ export default function StoryDetail() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0B0B0F' }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#030000ff' }} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* Header */}
         <View style={[s.header, { paddingTop: insets.top, height: insets.top + HEADER_BAR }]}>
@@ -309,7 +310,7 @@ export default function StoryDetail() {
             </TouchableOpacity>
 
             <View style={s.iconRow}>
-              <Ionicons name="chatbubble-outline" size={20} color="#F3F4F6" />
+             <FontAwesome5 name="comment-alt" size={20} color="#F3F4F6" />
               <Text style={s.metricTxt}>{displayCommentCount}</Text>
             </View>
           </View>
@@ -334,10 +335,10 @@ export default function StoryDetail() {
         </ScrollView>
 
         <View style={s.inputBar}>
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color="#A1A1AA" />
+          <FontAwesome5 name="comment-alt" size={18} color="#A1A1AA" />
           <TextInput
             placeholder="Agrega un comentario"
-            placeholderTextColor="#8A8A93"
+            placeholderTextColor="#dbdbdbff"
             style={s.input}
             value={commentInput}
             onChangeText={setCommentInput}
@@ -347,7 +348,7 @@ export default function StoryDetail() {
             <Ionicons
               name="send-outline"
               size={20}
-              color={commentInput.trim() ? '#F3F4F6' : '#595962'}
+              color={commentInput.trim() ? '#ffffffff' : '#ffffffff'}
             />
           </TouchableOpacity>
         </View>
@@ -360,11 +361,20 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#121219',
+    backgroundColor: '#030000ff',
     borderBottomWidth: 1,
-    borderBottomColor: '#1F1F27',
+    borderBottomColor: '#000000ff',
     paddingHorizontal: 12,
   },
+  //const C = {/*
+ 
+  //textPrimary: '#F3F4F6',
+  //textSecondary: '#A1A1AA',
+  //line: '#000000ff',
+  //avatarBg: '#0F1016',
+  //avatarBorder: '#2C2C33',
+  //like: '#ef4444',};
+
   backBtn: {
     width: 32,
     height: 32,
@@ -397,9 +407,9 @@ const s = StyleSheet.create({
   metricTxt: { color: '#F3F4F6' },
 
   commentCard: {
-    backgroundColor: '#121219',
+    backgroundColor: '#010102ff',
     borderWidth: 1,
-    borderColor: '#1F1F27',
+    borderColor: '#181818ff',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -418,8 +428,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1F1F27',
   },
-  commentAuthor: { color: '#C9C9D1', fontWeight: '600' },
-  commentText: { color: '#E5E7EB' },
+  commentAuthor: { color: '#ffffffff', fontWeight: '600' },
+  commentText: { color: '#d0d1d1ff' },
 
   inputBar: {
     position: 'absolute',
@@ -428,13 +438,17 @@ const s = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#0B0B0F',
+    backgroundColor: '#030000ff',
     borderTopWidth: 1,
-    borderTopColor: '#1F1F27',
+    borderTopColor: '#030000ff',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
+
+   //bg: '#030000ff',
+  //card: '#010102ff',
+  //cardBorder: '#181818ff',
   input: {
     flex: 1,
     height: 40,

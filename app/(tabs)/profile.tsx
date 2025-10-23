@@ -10,8 +10,10 @@ import {
   Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, FontAwesome6 } from '@expo/vector-icons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
+import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
 
 // ==== Tipos ====
@@ -59,6 +61,10 @@ export default function Profile() {
   const navigation = useNavigation();
   const router = useRouter();
 
+  const [fontsLoaded] = useFonts({
+    Risque_400Regular,
+  });
+
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [likesPublic, setLikesPublic] = useState<boolean>(true);
@@ -103,16 +109,59 @@ export default function Profile() {
     setShowSheet(true);
   }
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerTitle: 'PAZ',
-      headerRight: () => (
-        <TouchableOpacity onPress={() => router.push('/profile/settings')} style={{ marginRight: 12 }} hitSlop={10}>
-          <Ionicons name="settings-outline" size={22} color="#F3F4F6" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation, router]);
+ useLayoutEffect(() => {
+  if (!fontsLoaded) return;
+
+  navigation.setOptions({
+    headerTitle: () => (
+      <Text
+        style={{
+          fontFamily: 'Risque_400Regular',
+          fontSize: 22,
+          color: '#F3F4F6',
+          letterSpacing: 1,
+        }}
+      >
+        U-PAZ
+      </Text>
+    ),
+    headerTitleAlign: 'center',
+    headerLeft: () => (
+  <TouchableOpacity
+    onPress={() => router.push('/')}
+    hitSlop={10}
+    style={{ 
+      paddingHorizontal: 16, // 👈 Igual que en create
+      paddingVertical: 8,   // 👈 Opcional, para mejor área táctil vertical
+    }}
+  >
+    <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
+  </TouchableOpacity>
+),
+    headerRight: () => (
+      <TouchableOpacity
+        onPress={() => router.push('/profile/settings')}
+        style={{ marginRight: 12 }}
+        hitSlop={10}
+      >
+        <View style={{ width: 24, height: 24, justifyContent: 'center', alignItems: 'center' }}>
+          <MaterialCommunityIcons name="hexagon-outline" size={22} color="#ffffff" />
+          <View
+            style={{
+              position: 'absolute',
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              borderWidth: 1.5,
+              borderColor: '#ffffff',
+              backgroundColor: 'transparent',
+            }}
+          />
+        </View>
+      </TouchableOpacity>
+    ),
+  });
+}, [navigation, router, fontsLoaded]);
 
   const loadFromSupabase = useCallback(async () => {
     try {
@@ -392,19 +441,27 @@ export default function Profile() {
         <Text style={s.name}>{displayName}</Text>
       </View>
 
-      {/* Tabs */}
+      {/* Tabs - Botón Dividido */}
       <View style={s.tabs}>
-        <TouchableOpacity onPress={() => setTab('mine')} style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}>
-          <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
-            {`Mis Historias ${myStories.length}`}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setTab('likes')} style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#374151' }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
-            {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
-          </View>
-        </TouchableOpacity>
+        <View style={s.tabBtnContainer}>
+          <TouchableOpacity 
+            onPress={() => setTab('mine')} 
+            style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
+          >
+            <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
+              {`Mis Historias ${myStories.length}`}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => setTab('likes')} 
+            style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
+              {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Lista */}
@@ -546,7 +603,7 @@ function ProfileStoryCard({
           </TouchableOpacity>
 
           <View style={[s.meta, { marginLeft: 12 }]}>
-            <Ionicons name="chatbubble-outline" size={16} color="#F3F4F6" />
+            <Ionicons name="chatbox-outline" size={16} color='white' />
             <Text style={s.metaTxt}>{item.comments_count ?? 0}</Text>
           </View>
         </View>
@@ -556,7 +613,7 @@ function ProfileStoryCard({
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#0B0B0F' },
+  screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -575,19 +632,63 @@ const s = StyleSheet.create({
   },
   name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700', flex: 1 },
 
-  tabs: { marginTop: 24, paddingHorizontal: 16, flexDirection: 'row', gap: 10 },
-  tabBtn: {
-    flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#27272A',
-    backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center',
-  },
-  tabBtnActive: { backgroundColor: '#1F2937', borderColor: '#27272A' },
-  tabTxt: { color: '#C9C9D1', fontWeight: '600' },
-  tabTxtActive: { color: '#F3F4F6' },
+tabs: { 
+  marginTop: 24, 
+  paddingHorizontal: 16,
+},
+
+tabBtnContainer: {
+  flexDirection: 'row',
+  height: 40,
+  borderRadius: 8,
+  backgroundColor: '#000000ff', // Fondo gris oscuro del contenedor completo
+  borderWidth: 2,
+  borderColor: '#202020ff', // Borde del contenedor
+  width: '100%', // 👈 Ocupa el 80% del ancho de su contenedor (ajusta este %)
+  maxWidth: 320, // 👈 Ancho máximo en píxeles (opcional, para pantallas grandes)
+  alignSelf: 'center', // 👈 Centra horizontalmente
+  overflow: 'hidden', // 👈 ¡Esta línea lo arregla!
+},
+
+tabBtn: {
+  flex: 1,
+  alignItems: 'center',
+  justifyContent: 'center',
+  paddingHorizontal: 8, // 👈 Añade un poco de padding horizontal para no apretar el texto
+  // Sin border individual, el borde está en el contenedor
+},
+
+tabBtnActive: {
+  backgroundColor: '#1f1f1fff', // Fondo gris medio para la sección activa
+},
+
+tabTxt: {
+  color: '#F3F4F6', // Texto blanco
+  fontWeight: '600',
+  fontSize: 16,
+},
+
+tabTxtActive: {
+  color: '#FFFFFF', // Texto blanco
+  fontWeight: '700', // Negrita para destacar
+},
 
   card: {
-    backgroundColor: '#121219', borderRadius: 14, overflow: 'hidden', borderWidth: 1,
-    borderColor: '#1F1F27', padding: 12,
+    backgroundColor: '#010102ff', borderRadius: 14, overflow: 'hidden', borderWidth: 1,
+    borderColor: '#181818ff', padding: 12,
   },
+
+  //const C = {/*
+  //bg: '#000000ff',
+  //card: '#010102ff',
+  //cardBorder: '#181818ff',
+  //textPrimary: '#F3F4F6',
+  //textSecondary: '#A1A1AA',
+  //line: '#000000ff',
+  //avatarBg: '#0F1016',
+  //avatarBorder: '#2C2C33',
+  //like: '#ef4444',};
+
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   avatarMini: {
     width: 26, height: 26, borderRadius: 13, backgroundColor: '#0F1016',
@@ -599,7 +700,7 @@ const s = StyleSheet.create({
   excerpt: { color: '#D1D5DB' },
   footerRow: {
     marginTop: 8, flexDirection: 'row', alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: '#1F1F27', paddingTop: 8,
+    borderTopWidth: 1, borderTopColor: '#010102ff', paddingTop: 8,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
