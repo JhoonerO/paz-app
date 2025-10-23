@@ -436,7 +436,7 @@ const s = StyleSheet.create({
     width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F',
   },
   name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700', flex: 1 },
-  tabs: { marginTop: 24, paddingHorizontal: 16 },
+  tabs: { marginTop: 24, paddingHorizontal: 16, marginBottom: 16 },
   tabBtnContainer: {
     flexDirection: 'row',
     height: 40,

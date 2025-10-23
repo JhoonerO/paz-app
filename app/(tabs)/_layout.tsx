@@ -9,17 +9,18 @@ import Feather from '@expo/vector-icons/Feather';
 import AntDesign from '@expo/vector-icons/AntDesign';
 import * as SplashScreen from 'expo-splash-screen';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // 👈 AGREGAR ESTO
 
 SplashScreen.preventAutoHideAsync();
 
 export default function TabsLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [fontsLoaded] = useFonts({ Risque_400Regular });
+  const insets = useSafeAreaInsets(); // 👈 AGREGAR ESTO
 
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
-
 
   const loadUnread = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -40,10 +41,8 @@ export default function TabsLayout() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-    
       await loadUnread();
 
-     
       channel = supabase
         .channel('notifications-counter')
         .on(
@@ -81,7 +80,6 @@ export default function TabsLayout() {
     </Text>
   );
 
-  
   const HeaderRight = () => (
     <Link href="/notifications" asChild>
       <Pressable hitSlop={10} style={{ paddingHorizontal: 12 }}>
@@ -122,7 +120,9 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: '#000000ff',
           borderTopColor: '#181818ff',
-          height: 50,
+          height: 50 + insets.bottom, // 👈 CAMBIAR ESTO
+          paddingBottom: insets.bottom, // 👈 AGREGAR ESTO
+          paddingTop: 8, // 👈 AGREGA ESTA LÍNEA
         },
         tabBarActiveTintColor: '#F3F4F6',
         tabBarInactiveTintColor: '#A1A1AA',

@@ -635,6 +635,7 @@ const s = StyleSheet.create({
 tabs: { 
   marginTop: 24, 
   paddingHorizontal: 16,
+  marginBottom: 16, // 👈 AGREGA ESTA LÍNEA
 },
 
 tabBtnContainer: {
