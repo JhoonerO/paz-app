@@ -37,9 +37,21 @@ export default function Register() {
   const [pass, setPass] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  // Sheet de confirmación
   const [showConfirmSheet, setShowConfirmSheet] = useState(false);
+
+  const [sheet, setSheet] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    onConfirm: () => void;
+    variant: 'info' | 'error';
+  }>({
+    title: '',
+    message: '',
+    confirmText: 'OK',
+    onConfirm: () => setShowConfirmSheet(false),
+    variant: 'info',
+  });
 
   function redirectUrl() {
     return Linking.createURL('/auth/callback');
@@ -47,12 +59,27 @@ export default function Register() {
 
   async function onRegister() {
     const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
 
+    // validaciones básicas
     if (!trimmedName || !trimmedEmail || !pass.trim()) {
       setSheet({
         title: 'Campos faltantes',
         message: 'Nombre, correo y contraseña son obligatorios.',
+        confirmText: 'Cerrar',
+        onConfirm: () => setShowConfirmSheet(false),
+        variant: 'error',
+      });
+      setShowConfirmSheet(true);
+      return;
+    }
+
+    // validación del dominio institucional
+    if (!trimmedEmail.endsWith('@unipaz.edu.co')) {
+      setSheet({
+        title: 'Correo no permitido',
+        message:
+          'Esta app solo es funcional con correos institucionales de la UNIPAZ.',
         confirmText: 'Cerrar',
         onConfirm: () => setShowConfirmSheet(false),
         variant: 'error',
@@ -98,20 +125,6 @@ export default function Register() {
       setLoading(false);
     }
   }
-
-  const [sheet, setSheet] = useState<{
-    title: string;
-    message: string;
-    confirmText: string;
-    onConfirm: () => void;
-    variant: 'info' | 'error';
-  }>({
-    title: '',
-    message: '',
-    confirmText: 'OK',
-    onConfirm: () => setShowConfirmSheet(false),
-    variant: 'info',
-  });
 
   return (
     <KeyboardAvoidingView

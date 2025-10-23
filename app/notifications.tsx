@@ -31,6 +31,7 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const HEADER_BAR = 56;
 
+  // Carga inicial de notificaciones desde Supabase
   const loadNotifications = async (userId: string) => {
     const { data, error } = await supabase
       .from('notifications')
@@ -41,37 +42,28 @@ export default function NotificationsScreen() {
         created_at,
         read,
         profiles!notifications_actor_id_fkey ( display_name, avatar_url ),
-        stories!notifications_story_id_fkey (
-          title,
-          cover_url,
-          author_name
-        )
+        stories!notifications_story_id_fkey ( title, cover_url, author_name )
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      return;
-    }
+    if (error) return;
 
     const mapped = data.map((n: any) => {
-      const actorName = n.profiles?.display_name?.trim() || 'Alguien';
-      const actorAvatar = n.profiles?.avatar_url ?? null;
-      const storyTitle = n.stories?.title?.trim() || 'Historia sin título';
-      const storyAuthor = n.stories?.author_name?.trim() || 'Autor';
-      const storyCover =
-        (n.stories?.cover_url && n.stories.cover_url.trim().length > 0)
-          ? n.stories.cover_url.trim()
-          : null;
+      const rawCover = (n.stories?.cover_url ?? '').trim();
+      const storyCover = rawCover.length ? rawCover : null;
+
+      const rawAvatar = (n.profiles?.avatar_url ?? '').trim();
+      const actorAvatar = rawAvatar.length ? rawAvatar : null;
 
       return {
         id: n.id,
         type: n.type as 'like' | 'comment',
-        actorName,
+        actorName: n.profiles?.display_name?.trim() || 'Alguien',
         actorAvatar,
         storyId: n.story_id,
-        storyTitle,
-        storyAuthor,
+        storyTitle: n.stories?.title?.trim() || 'Historia sin título',
+        storyAuthor: n.stories?.author_name?.trim() || 'Autor',
         storyCover,
         createdAt: new Date(n.created_at).getTime(),
         read: n.read,
@@ -89,6 +81,7 @@ export default function NotificationsScreen() {
 
       await loadNotifications(uid);
 
+      // Escucha en tiempo real nuevas notificaciones
       const channel = supabase
         .channel('notifications-listener')
         .on(
@@ -99,9 +92,7 @@ export default function NotificationsScreen() {
             table: 'notifications',
             filter: `user_id=eq.${uid}`,
           },
-          (payload) => {
-            loadNotifications(uid);
-          }
+          () => loadNotifications(uid)
         )
         .subscribe();
 
@@ -113,21 +104,20 @@ export default function NotificationsScreen() {
     loadAndListen();
   }, []);
 
+  // Marca una notificación como leída y actualiza el estado local
+  const markAsRead = async (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+    await supabase.from('notifications').update({ read: true }).eq('id', id);
+  };
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000000ff' }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={['top', 'bottom']}>
       <View
         style={[s.header, { paddingTop: insets.top, height: insets.top + HEADER_BAR }]}
       >
-        <Text
-      style={{
-        fontFamily: 'Risque_400Regular',
-        fontSize: 22,
-        color: '#F3F4F6',
-        letterSpacing: 1,
-      }}
-    >
-      Notificaciones
-    </Text>
+        <Text style={s.headerTitle}>Notificaciones</Text>
         <View style={{ width: 32 }} />
       </View>
 
@@ -136,27 +126,26 @@ export default function NotificationsScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 12, paddingBottom: 16 }}
         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        renderItem={({ item }) => <NotificationRow item={item} />}
+        renderItem={({ item }) => (
+          <NotificationRow item={item} onRead={markAsRead} />
+        )}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <Text
-      style={{
-        fontFamily: 'Risque_400Regular',
-        fontSize: 22,
-        color: '#F3F4F6',
-        letterSpacing: 1,
-        textAlign: 'center',
-      }}
-    >
-      No tienes notificaciones.
-    </Text>
+          <Text style={s.empty}>No tienes notificaciones.</Text>
         }
       />
     </SafeAreaView>
   );
 }
 
-function NotificationRow({ item }: { item: NotificationItem }) {
+// Fila individual de notificación
+function NotificationRow({
+  item,
+  onRead,
+}: {
+  item: NotificationItem;
+  onRead: (id: string) => void;
+}) {
   const message =
     item.type === 'like'
       ? `${item.actorName} le ha gustado tu historia`
@@ -181,7 +170,11 @@ function NotificationRow({ item }: { item: NotificationItem }) {
       }}
       asChild
     >
-      <TouchableOpacity activeOpacity={0.85} style={s.row}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={s.row}
+        onPress={() => !item.read && onRead(item.id)}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 }}>
           <View style={s.avatarWrap}>
             {item.actorAvatar ? (
@@ -212,19 +205,19 @@ function NotificationRow({ item }: { item: NotificationItem }) {
           </View>
         </View>
 
-        {item.storyCover && (
+        {item.storyCover ? (
           <Image
             source={{ uri: item.storyCover }}
             style={s.thumb}
             resizeMode="cover"
-            onError={() => {}}
           />
-        )}
+        ) : null}
       </TouchableOpacity>
     </Link>
   );
 }
 
+// Calcula el tiempo transcurrido
 function timeAgo(ts: number) {
   const diff = Math.max(1, Math.floor((Date.now() - ts) / 1000));
   if (diff < 60) return `hace ${diff}s`;
@@ -238,29 +231,25 @@ function timeAgo(ts: number) {
 
 const s = StyleSheet.create({
   header: {
-    backgroundColor: '#000000ff',
+    backgroundColor: '#000',
     borderBottomWidth: 1,
-
     paddingHorizontal: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
+    fontFamily: 'Risque_400Regular',
+    fontSize: 22,
     color: '#F3F4F6',
-    fontSize: 18,
-    fontWeight: '700',
+    letterSpacing: 1,
   },
-
-  //bg: '#000000ff',
-  //card: '#010102ff',
-  //cardBorder: '#181818ff',
-  //textPrimary: '#F3F4F6',
-  //textSecondary: '#A1A1AA',
-  //line: '#000000ff',
-  //avatarBg: '#0F1016',
-  //avatarBorder: '#2C2C33',
-  //like: '#ef4444',
-
+  empty: {
+    fontFamily: 'Risque_400Regular',
+    fontSize: 22,
+    color: '#F3F4F6',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
   row: {
     backgroundColor: '#010102ff',
     borderWidth: 1,
@@ -273,16 +262,22 @@ const s = StyleSheet.create({
   },
   avatarWrap: { width: 42, height: 42 },
   avatar: {
-    width: 42, height: 42, borderRadius: 21,
-    borderWidth: 1, borderColor: '#1F1F27',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: '#1F1F27',
   },
   unreadDot: {
     position: 'absolute',
     right: -2,
     bottom: -2,
-    width: 10, height: 10, borderRadius: 5,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: '#3B82F6',
-    borderWidth: 2, borderColor: '#121219',
+    borderWidth: 2,
+    borderColor: '#121219',
   },
   message: { color: '#E5E7EB', fontWeight: '600', flexShrink: 1 },
   storyTitle: { color: '#C9C9D1', marginTop: 2 },

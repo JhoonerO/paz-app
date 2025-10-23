@@ -1,10 +1,11 @@
+// app/(tabs)/_layout.tsx
 import { Tabs, Link } from 'expo-router';
 import { Pressable, View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
-import Feather from '@expo/vector-icons/Feather'; 
+import Feather from '@expo/vector-icons/Feather';
 import AntDesign from '@expo/vector-icons/AntDesign';
 import * as SplashScreen from 'expo-splash-screen';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
@@ -12,27 +13,57 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 SplashScreen.preventAutoHideAsync();
 
 export default function TabsLayout() {
-  const [hasUnread, setHasUnread] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [fontsLoaded] = useFonts({ Risque_400Regular });
 
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
 
+
+  const loadUnread = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('read', false);
+
+    if (!error && typeof count === 'number') setUnreadCount(count);
+  };
+
   useEffect(() => {
-    const checkUnread = async () => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { count } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
+    
+      await loadUnread();
 
-      setHasUnread((count || 0) > 0);
+     
+      channel = supabase
+        .channel('notifications-counter')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => loadUnread()
+        )
+        .subscribe();
     };
-    checkUnread();
+
+    init();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   if (!fontsLoaded) return null;
@@ -50,23 +81,31 @@ export default function TabsLayout() {
     </Text>
   );
 
+  
   const HeaderRight = () => (
     <Link href="/notifications" asChild>
       <Pressable hitSlop={10} style={{ paddingHorizontal: 12 }}>
         <View style={{ position: 'relative' }}>
           <Ionicons name="notifications-sharp" size={24} color="white" />
-          {hasUnread && (
+          {unreadCount > 0 && (
             <View
               style={{
                 position: 'absolute',
-                top: -4,
-                right: -4,
-                width: 10,
-                height: 10,
-                borderRadius: 5,
+                top: -6,
+                right: -6,
                 backgroundColor: '#ef4444',
+                borderRadius: 9,
+                minWidth: 18,
+                height: 18,
+                paddingHorizontal: 4,
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
-            />
+            >
+              <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </Text>
+            </View>
           )}
         </View>
       </Pressable>

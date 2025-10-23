@@ -1,8 +1,9 @@
 // app/(tabs)/index.tsx
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, RefreshControl } from 'react-native';
-import { Link, useFocusEffect, useRouter } from 'expo-router';
+import { Link, useFocusEffect, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { supabase } from '../../lib/supabase';
 
 type DBStory = {
@@ -35,10 +36,13 @@ export default function Feed() {
   const [stories, setStories] = useState<DBStory[]>([]);
   const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
-
-  // para fallback de tu propio avatar si el embed viene vacío
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+
+  // referencia y tipo correcto de navegación para evitar errores TS
+  type TabsNav = BottomTabNavigationProp<any>;
+  const navigation = useNavigation<TabsNav>();
+  const flatListRef = useRef<FlatList<DBStory>>(null);
 
   async function loadFeed() {
     const { data: userData } = await supabase.auth.getUser();
@@ -138,9 +142,22 @@ export default function Feed() {
     setRefreshing(false);
   }, []);
 
+  // 👉 Si se toca el icono de Home estando ya en Home, recarga y sube al inicio
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('tabPress', (e: any) => {
+      if (navigation.isFocused()) {
+        e.preventDefault?.();
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        loadFeed();
+      }
+    });
+    return unsubscribe;
+  }, [navigation]);
+
   return (
     <View style={s.screen}>
       <FlatList
+        ref={flatListRef}
         data={stories}
         keyExtractor={(it) => it.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
