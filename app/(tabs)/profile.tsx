@@ -19,7 +19,6 @@ import { supabase } from '../../lib/supabase';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 
-// 👇 AVATARES PREDETERMINADOS
 const DEFAULT_AVATARS = [
   { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg') },
   { id: 'caballo', name: 'Caballo', source: require('../../imagenes_de_Perfil/caballo.jpg') },
@@ -33,7 +32,6 @@ const DEFAULT_AVATARS = [
   { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg') },
 ];
 
-// ==== Tipos ====
 type DBStory = {
   id: string;
   title: string;
@@ -57,7 +55,6 @@ type ProfileRow = {
   likes_public: boolean;
 };
 
-// ==== Helpers upload ====
 function getExtAndType(uri: string) {
   const ext = (uri.split('.').pop() || '').toLowerCase();
   if (ext === 'png') return { ext: 'png', type: 'image/png' };
@@ -69,7 +66,6 @@ function getExtAndType(uri: string) {
 
 async function uriToArrayBuffer(uri: string) {
   const res: any = await fetch(uri);
-  // @ts-ignore
   const ab = await res.arrayBuffer();
   return ab as ArrayBuffer;
 }
@@ -325,18 +321,15 @@ export default function Profile() {
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
   useFocusEffect(useCallback(() => { loadFromSupabase(); }, [loadFromSupabase]));
 
-  // 👇 MODIFICADO: Subir avatar predeterminado a Supabase
   async function selectDefaultAvatar(avatarId: string) {
     try {
       const { data: authData } = await supabase.auth.getUser();
       const uid = authData.user?.id;
       if (!uid) return;
 
-      // Buscar el avatar en el array
       const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
       if (!avatar) return;
 
-      // Convertir el require() a URI local usando expo-asset
       const asset = Asset.fromModule(avatar.source);
       await asset.downloadAsync();
       
@@ -345,7 +338,6 @@ export default function Profile() {
         return;
       }
 
-      // Subir a Supabase como cualquier otra imagen
       const { ext, type } = getExtAndType(asset.localUri);
       const ab = await uriToArrayBuffer(asset.localUri);
       const path = `${uid}/avatar_${avatarId}.${ext}`;

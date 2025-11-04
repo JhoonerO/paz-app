@@ -142,7 +142,7 @@ export default function Feed() {
     setRefreshing(false);
   }, []);
 
-  // 👉 Si se toca el icono de Home estando ya en Home, recarga y sube al inicio
+  // Si se toca el icono de Home estando ya en Home, recarga y sube al inicio
   useEffect(() => {
     const unsubscribe = navigation.addListener('tabPress', (e: any) => {
       if (navigation.isFocused()) {
