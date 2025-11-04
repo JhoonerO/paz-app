@@ -75,18 +75,23 @@ export default function Register() {
     }
 
     // validación del dominio institucional
-    if (!trimmedEmail.endsWith('@unipaz.edu.co')) {
-      setSheet({
-        title: 'Correo no permitido',
-        message:
-          'Esta app solo es funcional con correos institucionales de la UNIPAZ.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
-      return;
-    }
+    // validación del dominio institucional (excepto correo de soporte)
+      const isAllowedEmail = 
+        trimmedEmail.endsWith('@unipaz.edu.co') || 
+        trimmedEmail === 'soporte.upaz@gmail.com';
+
+      if (!isAllowedEmail) {
+        setSheet({
+          title: 'Correo no permitido',
+          message:
+            'Esta app solo es funcional con correos institucionales de la UNIPAZ.',
+          confirmText: 'Cerrar',
+          onConfirm: () => setShowConfirmSheet(false),
+          variant: 'error',
+        });
+        setShowConfirmSheet(true);
+        return;
+      }
 
     setLoading(true);
     try {

@@ -2,14 +2,15 @@
   "expo": {
     "name": "PAZ",
     "slug": "paz",
+    "scheme": "upaz",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B0B0F",
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/icon.png",        // ← Cambió a icon.png
-      "resizeMode": "contain",             // ← contain para el logo (centrado)
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0B0B0F"
     },
     "androidStatusBar": {
@@ -24,19 +25,38 @@
         "backgroundColor": "#0B0B0F"
       },
       "splash": {
-        "image": "./assets/icon.png",      // ← Cambió a icon.png
-        "resizeMode": "contain",           // ← contain para centrar el logo
-        "backgroundColor": "#0B0B0F"
-      }
-    },
-    "ios": {
-      "icon": "./assets/icon.png",
-      "splash": {
-        "image": "./assets/icon.png",      // ← Cambió a icon.png
-        "resizeMode": "contain",           // ← contain para centrar el logo
+        "image": "./assets/icon.png",
+        "resizeMode": "contain",
         "backgroundColor": "#0B0B0F"
       },
-      "supportsTablet": true
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "upaz.com",
+              "pathPrefix": "/auth/callback"
+            },
+            {
+              "scheme": "upaz"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.jhoonero.paz",
+      "icon": "./assets/icon.png",
+      "splash": {
+        "image": "./assets/icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0B0B0F"
+      },
+      "supportsTablet": true,
+      "associatedDomains": ["applinks:upaz.com"]
     },
     "web": {
       "favicon": "./assets/favicon.png"

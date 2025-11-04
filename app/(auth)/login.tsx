@@ -20,7 +20,6 @@ import { supabase } from '../../lib/supabase';
 
 const KEY_SESSION = 'session_active';
 
-// 🎨 Paleta idéntica a la del feed
 const C = {
   bg: '#000000ff',
   card: '#010102ff',
@@ -41,7 +40,6 @@ export default function Login() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ---- Sheet (mini notificación) ----
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
     title: string;
@@ -57,7 +55,6 @@ export default function Login() {
     variant: 'info',
   });
 
-  // Reenviar correo de confirmación de signup
   async function resendConfirmEmail(to: string) {
     try {
       const { error } = await supabase.auth.resend({
@@ -68,8 +65,7 @@ export default function Login() {
 
       setSheet({
         title: 'Correo reenviado',
-        message:
-          'Te enviamos un nuevo correo de verificación. Revisa tu bandeja y confirma tu cuenta.',
+        message: 'Te enviamos un nuevo correo de verificación. Revisa tu bandeja y confirma tu cuenta.',
         confirmText: 'Cerrar',
         onConfirm: () => setShowSheet(false),
         variant: 'info',
@@ -121,8 +117,7 @@ export default function Login() {
         if (isNotConfirmed) {
           setSheet({
             title: 'Correo no confirmado',
-            message:
-              'Revisa tu correo para confirmar tu cuenta. Si no lo ves, toca “Reenviar correo”.',
+            message: 'Revisa tu correo para confirmar tu cuenta. Si no lo ves, toca "Reenviar correo".',
             confirmText: 'Reenviar correo',
             onConfirm: () => {
               setShowSheet(false);
@@ -141,7 +136,6 @@ export default function Login() {
       const user = data.user;
       if (!user) throw new Error('No se pudo obtener el usuario.');
 
-      // Carga display_name desde public.profiles
       let displayName = user.email?.split('@')[0] ?? 'Usuario';
       const { data: prof } = await supabase
         .from('profiles')
@@ -179,18 +173,10 @@ export default function Login() {
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Image
-  source={require('../../assets/LoginSc.png')}
-  style={s.bgImg}
-/>
+      <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
       <View style={s.wrap}>
-        {/* Logo */}
         <View style={s.logoFrame}>
-          <Image
-            source={require('../../assets/icon.png')}
-            style={s.logoImg}
-            resizeMode="contain"
-          />
+          <Image source={require('../../assets/icon.png')} style={s.logoImg} resizeMode="contain" />
         </View>
 
         <View style={s.card}>
@@ -206,7 +192,6 @@ export default function Login() {
             returnKeyType="next"
           />
 
-          {/* Contraseña centrada */}
           <View style={s.pwdWrap}>
             <TextInput
               placeholder="Contraseña"
@@ -220,11 +205,7 @@ export default function Login() {
               returnKeyType="go"
               onSubmitEditing={onLogin}
             />
-            <TouchableOpacity
-              onPress={() => setShowPass(v => !v)}
-              style={s.eyeBtn}
-              hitSlop={10}
-            >
+            <TouchableOpacity onPress={() => setShowPass(v => !v)} style={s.eyeBtn} hitSlop={10}>
               <Ionicons
                 name={showPass ? 'eye-off-outline' : 'eye-outline'}
                 size={20}
@@ -232,6 +213,15 @@ export default function Login() {
               />
             </TouchableOpacity>
           </View>
+
+          {/* 👇 NUEVO: Botón para recuperar contraseña */}
+          <TouchableOpacity 
+            onPress={() => router.push('/(auth)/forgot-password')}
+            style={s.forgotBtn}
+            hitSlop={10}
+          >
+            <Text style={s.forgotText}>¿Olvidaste tu contraseña?</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             activeOpacity={0.8}
@@ -247,7 +237,6 @@ export default function Login() {
           </TouchableOpacity>
         </View>
 
-        {/* Footer fijo */}
         <View style={s.footer}>
           <Text style={s.footerText}>
             ¿No tienes una cuenta?{' '}
@@ -258,13 +247,7 @@ export default function Login() {
         </View>
       </View>
 
-      {/* Sheet / mini notificación */}
-      <Modal
-        visible={showSheet}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSheet(false)}
-      >
+      <Modal visible={showSheet} transparent animationType="fade" onRequestClose={() => setShowSheet(false)}>
         <View style={s.overlay}>
           <Pressable style={s.backdrop} onPress={() => setShowSheet(false)} />
           <View style={s.sheet}>
@@ -287,10 +270,7 @@ export default function Login() {
             <Text style={s.sheetMsg}>{sheet.message}</Text>
 
             <View style={s.sheetActions}>
-              <TouchableOpacity
-                style={[s.sheetBtn, s.sheetBtnPrimary]}
-                onPress={sheet.onConfirm}
-              >
+              <TouchableOpacity style={[s.sheetBtn, s.sheetBtnPrimary]} onPress={sheet.onConfirm}>
                 <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
               </TouchableOpacity>
             </View>
@@ -302,12 +282,12 @@ export default function Login() {
 }
 
 const s = StyleSheet.create({
- wrap: {
-  flex: 1,
-  backgroundColor: 'rgba(0, 0, 0, 0.45)', // fondo semitransparente sobre la imagen
-  padding: 20,
-  justifyContent: 'center',
-},
+  wrap: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    padding: 20,
+    justifyContent: 'center',
+  },
 
   logoFrame: {
     alignSelf: 'center',
@@ -332,13 +312,13 @@ const s = StyleSheet.create({
   },
   inputPwd: {
     width: '125%',
-  alignSelf: 'center',
-  backgroundColor: '#0f0f0fff',
-  borderRadius: 10,
-  height: 48,
-  color: '#F3F4F6',
-  textAlign: 'center',
-  paddingHorizontal: 16,
+    alignSelf: 'center',
+    backgroundColor: '#0f0f0fff',
+    borderRadius: 10,
+    height: 48,
+    color: '#F3F4F6',
+    textAlign: 'center',
+    paddingHorizontal: 16,
   },
   pwdWrap: {
     position: 'relative',
@@ -348,14 +328,26 @@ const s = StyleSheet.create({
   },
   eyeBtn: {
     position: 'absolute',
-    right: -20  ,
+    right: -20,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
 
+  // 👇 NUEVO: Botón de recuperar contraseña
+  forgotBtn: {
+    alignSelf: 'center',
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  forgotText: {
+    color: C.textPrimary,
+    fontSize: 14,
+    textDecorationLine: 'underline',
+  },
+
   btn: {
-    marginTop: 50,
+    marginTop: 24,
     height: 48,
     width: '50%',
     borderRadius: 10,
@@ -368,7 +360,6 @@ const s = StyleSheet.create({
   },
   btnText: { color: C.textPrimary, fontWeight: '600' },
 
-  // ✅ Footer fijo
   footer: {
     position: 'absolute',
     left: 0,
@@ -379,7 +370,6 @@ const s = StyleSheet.create({
   footerText: { color: C.textSecondary, textAlign: 'center' },
   link: { color: C.textPrimary, textDecorationLine: 'underline' },
 
-  // Sheet styles
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -427,9 +417,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
   },
   bgImg: {
-  ...StyleSheet.absoluteFillObject,
-  opacity: 1,        // ajusta visibilidad
-},
+    ...StyleSheet.absoluteFillObject,
+    opacity: 1,
+  },
   sheetBtnPrimary: { backgroundColor: C.avatarBg, borderColor: C.avatarBorder },
   sheetBtnText: { fontWeight: '600', color: '#fff' },
 });
