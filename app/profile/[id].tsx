@@ -1,10 +1,24 @@
 // app/profile/[id].tsx
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList, Alert } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Image, 
+  TouchableOpacity, 
+  FlatList, 
+  Alert,
+  Modal,
+  Dimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useNavigation, useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
+import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type DBStory = {
   id: string;
@@ -42,6 +56,9 @@ export default function PublicProfile() {
   const [likedStories, setLikedStories] = useState<DBStory[]>([]);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+
+  // 👇 NUEVO: Estado para zoom de avatar
+  const [showAvatarZoom, setShowAvatarZoom] = useState(false);
 
   useLayoutEffect(() => {
     if (!fontsLoaded) return;
@@ -294,58 +311,167 @@ export default function PublicProfile() {
   const listData = useMemo(() => (tab === 'mine' ? stories : likedStories), [tab, stories, likedStories]);
 
   return (
-    <View style={s.screen}>
-      <View style={s.avatarRow}>
-        <View style={s.avatarWrap}>
-          {avatarUrl ? <Image source={{ uri: avatarUrl }} style={s.avatar} /> : <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />}
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={s.screen}>
+        <View style={s.avatarRow}>
+          <View style={s.avatarWrap}>
+            {/* 👇 CLICK EN AVATAR PARA ZOOM */}
+            <TouchableOpacity 
+              activeOpacity={0.9}
+              onPress={() => avatarUrl && setShowAvatarZoom(true)}
+            >
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={s.avatar} />
+              ) : (
+                <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
+              )}
+            </TouchableOpacity>
+          </View>
+          <Text style={s.name}>{displayName}</Text>
         </View>
-        <Text style={s.name}>{displayName}</Text>
-      </View>
 
-      <View style={s.tabs}>
-        <View style={s.tabBtnContainer}>
-          <TouchableOpacity 
-            onPress={() => setTab('mine')} 
-            style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
-          >
-            <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
-              {`Mis Historias ${stories.length}`}
+        <View style={s.tabs}>
+          <View style={s.tabBtnContainer}>
+            <TouchableOpacity 
+              onPress={() => setTab('mine')} 
+              style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
+            >
+              <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
+                {`Mis Historias ${stories.length}`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => likesPublic && setTab('likes')}
+              style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
+              disabled={!likesPublic}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
+                {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <FlatList
+          data={listData}
+          keyExtractor={(it) => it.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ListEmptyComponent={
+            <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
+              {tab === 'mine' ? 'Aún no tiene historias.' : (likesPublic ? 'No hay historias en "Me gusta".' : 'Likes ocultos.')}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => likesPublic && setTab('likes')}
-            style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
-            disabled={!likesPublic}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
-              {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
-            </View>
-          </TouchableOpacity>
-        </View>
-      </View>
+          }
+          renderItem={({ item }) => (
+            <PublicStoryCard
+              item={item}
+              isLiked={likedIds.has(item.id)}
+              onToggleLike={() => toggleLike(item)}
+              viewerId={viewerId}
+            />
+          )}
+          showsVerticalScrollIndicator={false}
+        />
 
-      <FlatList
-        data={listData}
-        keyExtractor={(it) => it.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-        ListEmptyComponent={
-          <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
-            {tab === 'mine' ? 'Aún no tiene historias.' : (likesPublic ? 'No hay historias en “Me gusta”.' : 'Likes ocultos.')}
-          </Text>
-        }
-        renderItem={({ item }) => (
-          <PublicStoryCard
-            item={item}
-            isLiked={likedIds.has(item.id)}
-            onToggleLike={() => toggleLike(item)}
-            viewerId={viewerId}
-          />
-        )}
-        showsVerticalScrollIndicator={false}
-      />
-    </View>
+        {/* 👇 MODAL ZOOM DE AVATAR CON PINCH + DOBLE TOQUE */}
+        <ImageZoomModal 
+          visible={showAvatarZoom}
+          imageUri={avatarUrl || ''}
+          onClose={() => setShowAvatarZoom(false)}
+        />
+      </View>
+    </GestureHandlerRootView>
+  );
+}
+
+// 👇 COMPONENTE PARA ZOOM DE AVATAR CON PINCH + DOBLE TOQUE
+function ImageZoomModal({ 
+  visible, 
+  imageUri, 
+  onClose 
+}: { 
+  visible: boolean; 
+  imageUri: string; 
+  onClose: () => void 
+}) {
+  const scale = useSharedValue(1);
+  const baseScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  const doubleTapRef = useCallback((ref: any) => ref, []);
+
+  const onDoubleTap = (event: any) => {
+    if (event.nativeEvent.state === State.ACTIVE) {
+      if (scale.value > 1) {
+        scale.value = withSpring(1);
+        baseScale.value = 1;
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+      } else {
+        scale.value = withSpring(2);
+        baseScale.value = 2;
+      }
+    }
+  };
+
+  const onPinch = (event: any) => {
+    scale.value = baseScale.value * event.nativeEvent.scale;
+  };
+
+  const onPinchEnd = () => {
+    baseScale.value = scale.value;
+    if (scale.value < 1) {
+      scale.value = withSpring(1);
+      baseScale.value = 1;
+      translateX.value = withSpring(0);
+      translateY.value = withSpring(0);
+    }
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+    borderRadius: scale.value === 1 ? (SCREEN_WIDTH * 0.9) / 2 : 0,
+  }));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={s.zoomOverlay}>
+        <TouchableOpacity 
+          style={s.zoomCloseBtn} 
+          onPress={onClose}
+          hitSlop={10}
+        >
+          <Ionicons name="close-circle" size={40} color="#fff" />
+        </TouchableOpacity>
+
+        <TapGestureHandler
+          ref={doubleTapRef}
+          onHandlerStateChange={onDoubleTap}
+          numberOfTaps={2}
+        >
+          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <PinchGestureHandler
+              onGestureEvent={onPinch}
+              onEnded={onPinchEnd}
+            >
+              <Animated.View style={animatedStyle}>
+                <Image 
+                  source={{ uri: imageUri }} 
+                  style={s.zoomImage}
+                  resizeMode="cover"
+                />
+              </Animated.View>
+            </PinchGestureHandler>
+          </Animated.View>
+        </TapGestureHandler>
+      </View>
+    </Modal>
   );
 }
 
@@ -476,4 +602,23 @@ const s = StyleSheet.create({
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
+
+  // 👇 ESTILOS PARA ZOOM DE AVATAR
+  zoomOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomCloseBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  zoomImage: {
+    width: SCREEN_WIDTH * 0.9,
+    height: SCREEN_WIDTH * 0.9,
+    borderRadius: (SCREEN_WIDTH * 0.9) / 2,
+  },
 });

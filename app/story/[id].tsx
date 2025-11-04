@@ -9,8 +9,8 @@ import {
   ActivityIndicator,
   Modal,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,10 @@ import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type Params = {
   id: string;
@@ -64,6 +68,9 @@ export default function StoryDetail() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [showDeleteStoryModal, setShowDeleteStoryModal] = useState(false);
   const [deletingStory, setDeletingStory] = useState(false);
+
+  // 👇 NUEVO: Estado para zoom con pinch + doble toque
+  const [showImageZoom, setShowImageZoom] = useState(false);
 
   // 👇 ESTADO PARA NOTIFICACIONES ELEGANTES (SHEET)
   const [showSheet, setShowSheet] = useState(false);
@@ -331,215 +338,321 @@ export default function StoryDetail() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#030000ff' }}>
-      <View style={[s.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={handleBack} hitSlop={10} style={s.backBtn}>
-          <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>{storyTitle}</Text>
-        
-        {(userId === storyAuthorId || isAdmin) && (
-          <TouchableOpacity 
-            onPress={() => setShowDeleteStoryModal(true)} 
-            hitSlop={10}
-            style={s.deleteBtn}
-          >
-            <Ionicons name="trash-outline" size={22} color="#ef4444" />
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#030000ff' }}>
+        <View style={[s.header, { paddingTop: insets.top }]}>
+          <TouchableOpacity onPress={handleBack} hitSlop={10} style={s.backBtn}>
+            <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
           </TouchableOpacity>
-        )}
-        
-        {!(userId === storyAuthorId || isAdmin) && <View style={{ width: 32 }} />}
-      </View>
-
-      <View style={{ flex: 1 }}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[s.content, { paddingBottom: 80 }]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {storyCover && <Image source={{ uri: storyCover }} style={s.coverImg} />}
-
-          <Text style={s.bodyText}>{storyBody}</Text>
-          <Text style={s.author}>— {authorName}</Text>
-
-          <View style={s.metrics}>
-            <TouchableOpacity style={s.iconRow} onPress={toggleLike}>
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={20}
-                color={liked ? '#ef4444' : '#F3F4F6'}
-              />
-              <Text style={[s.metricTxt, liked && { color: '#ef4444' }]}>{likeCount}</Text>
-            </TouchableOpacity>
-            <View style={s.iconRow}>
-              <FontAwesome5 name="comment-alt" size={20} color="#F3F4F6" />
-              <Text style={s.metricTxt}>{displayCommentCount}</Text>
-            </View>
-          </View>
-
-          <View style={{ gap: 8, marginTop: 4 }}>
-            {commentList.map(c => (
-              <TouchableOpacity
-                key={c.id}
-                onLongPress={() => confirmDelete(c)}
-                delayLongPress={400}
-                activeOpacity={0.9}
-              >
-                <View style={s.commentCard}>
-                  <View style={s.commentHeader}>
-                    {c.avatarUrl ? (
-                      <Image source={{ uri: c.avatarUrl }} style={s.commentAvatar} />
-                    ) : (
-                      <View style={[s.commentAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
-                        <Ionicons name="person-outline" size={14} color="#9CA3AF" />
-                      </View>
-                    )}
-                    <Text style={s.commentAuthor}>{c.author}</Text>
-                  </View>
-                  <Text style={s.commentText}>{c.text}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-
-        <View 
-          style={[
-            s.inputBar, 
-            { 
-              marginBottom: keyboardHeight,
-              paddingBottom: keyboardHeight === 0 ? (insets.bottom > 0 ? insets.bottom : 10) : 10
-            }, 
-            sendingComment && { opacity: 0.6 }
-          ]}
-        >
-          <FontAwesome5 name="comment-alt" size={18} color="#A1A1AA" />
-          <TextInput
-            placeholder="Agrega un comentario"
-            placeholderTextColor="#dbdbdbff"
-            style={s.input}
-            value={commentInput}
-            onChangeText={setCommentInput}
-            editable={!sendingComment}
-            returnKeyType="send"
-            onSubmitEditing={addComment}
-          />
-          <TouchableOpacity
-            hitSlop={10}
-            onPress={addComment}
-            disabled={!commentInput.trim() || sendingComment}
-          >
-            <Ionicons name="send-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Modal eliminar comentario */}
-      <Modal visible={showDeleteModal} transparent animationType="fade">
-        <View style={s.modalOverlay}>
-          <View style={s.modalBox}>
-            <Text style={s.modalTitle}>Eliminar comentario</Text>
-            <Text style={s.modalText}>
-              ¿Seguro que quieres eliminar este comentario?
-            </Text>
-
-            <View style={s.modalButtons}>
-              <TouchableOpacity
-                onPress={() => setShowDeleteModal(false)}
-                style={[s.modalBtn, { backgroundColor: '#333' }]}
-              >
-                <Text style={s.modalBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
-                style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
-              >
-                <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal eliminar historia */}
-      <Modal visible={showDeleteStoryModal} transparent animationType="fade">
-        <View style={s.modalOverlay}>
-          <View style={s.modalBox}>
-            <View style={s.iconWrapDelete}>
-              <Ionicons name="warning" size={28} color="#ef4444" />
-            </View>
-            
-            <Text style={s.modalTitle}>Eliminar historia</Text>
-            <Text style={s.modalText}>
-              Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar esta historia?
-            </Text>
-
-            <View style={s.modalButtons}>
-              <TouchableOpacity
-                onPress={() => setShowDeleteStoryModal(false)}
-                style={[s.modalBtn, { backgroundColor: '#333' }]}
-                disabled={deletingStory}
-              >
-                <Text style={s.modalBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleDeleteStory}
-                style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
-                disabled={deletingStory}
-              >
-                {deletingStory ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* 👇 SHEET ELEGANTE PARA NOTIFICACIONES */}
-      <Modal
-        visible={showSheet}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSheet(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.sheet}>
-            <View
-              style={[
-                s.iconWrap,
-                sheet.variant === 'error'
-                  ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
-                  : { backgroundColor: '#1F2937', borderColor: '#374151' },
-              ]}
+          <Text style={s.headerTitle}>{storyTitle}</Text>
+          
+          {(userId === storyAuthorId || isAdmin) && (
+            <TouchableOpacity 
+              onPress={() => setShowDeleteStoryModal(true)} 
+              hitSlop={10}
+              style={s.deleteBtn}
             >
-              <Ionicons
-                name={sheet.variant === 'error' ? 'alert-circle' : 'checkmark-circle'}
-                size={24}
-                color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
-              />
-            </View>
+              <Ionicons name="trash-outline" size={22} color="#ef4444" />
+            </TouchableOpacity>
+          )}
+          
+          {!(userId === storyAuthorId || isAdmin) && <View style={{ width: 32 }} />}
+        </View>
 
-            <Text style={s.sheetTitle}>{sheet.title}</Text>
-            <Text style={s.sheetMsg}>{sheet.message}</Text>
-
-            <View style={s.sheetActions}>
-              <TouchableOpacity
-                style={[s.sheetBtn, s.sheetBtnPrimary]}
-                onPress={sheet.onConfirm}
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={[s.content, { paddingBottom: 80 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* 👇 IMAGEN CON CLICK PARA ZOOM */}
+            {storyCover && (
+              <TouchableOpacity 
+                activeOpacity={0.9}
+                onPress={() => setShowImageZoom(true)}
               >
-                <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+                <Image source={{ uri: storyCover }} style={s.coverImg} />
               </TouchableOpacity>
+            )}
+
+            <Text style={s.bodyText}>{storyBody}</Text>
+            <Text style={s.author}>— {authorName}</Text>
+
+            <View style={s.metrics}>
+              <TouchableOpacity style={s.iconRow} onPress={toggleLike}>
+                <Ionicons
+                  name={liked ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={liked ? '#ef4444' : '#F3F4F6'}
+                />
+                <Text style={[s.metricTxt, liked && { color: '#ef4444' }]}>{likeCount}</Text>
+              </TouchableOpacity>
+              <View style={s.iconRow}>
+                <FontAwesome5 name="comment-alt" size={20} color="#F3F4F6" />
+                <Text style={s.metricTxt}>{displayCommentCount}</Text>
+              </View>
             </View>
+
+            <View style={{ gap: 8, marginTop: 4 }}>
+              {commentList.map(c => (
+                <TouchableOpacity
+                  key={c.id}
+                  onLongPress={() => confirmDelete(c)}
+                  delayLongPress={400}
+                  activeOpacity={0.9}
+                >
+                  <View style={s.commentCard}>
+                    <View style={s.commentHeader}>
+                      {c.avatarUrl ? (
+                        <Image source={{ uri: c.avatarUrl }} style={s.commentAvatar} />
+                      ) : (
+                        <View style={[s.commentAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
+                          <Ionicons name="person-outline" size={14} color="#9CA3AF" />
+                        </View>
+                      )}
+                      <Text style={s.commentAuthor}>{c.author}</Text>
+                    </View>
+                    <Text style={s.commentText}>{c.text}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <View 
+            style={[
+              s.inputBar, 
+              { 
+                marginBottom: keyboardHeight,
+                paddingBottom: keyboardHeight === 0 ? (insets.bottom > 0 ? insets.bottom : 10) : 10
+              }, 
+              sendingComment && { opacity: 0.6 }
+            ]}
+          >
+            <FontAwesome5 name="comment-alt" size={18} color="#A1A1AA" />
+            <TextInput
+              placeholder="Agrega un comentario"
+              placeholderTextColor="#dbdbdbff"
+              style={s.input}
+              value={commentInput}
+              onChangeText={setCommentInput}
+              editable={!sendingComment}
+              returnKeyType="send"
+              onSubmitEditing={addComment}
+            />
+            <TouchableOpacity
+              hitSlop={10}
+              onPress={addComment}
+              disabled={!commentInput.trim() || sendingComment}
+            >
+              <Ionicons name="send-outline" size={20} color="#fff" />
+            </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-    </SafeAreaView>
+
+        {/* 👇 MODAL ZOOM CON PINCH + DOBLE TOQUE Y FONDO TRANSPARENTE */}
+        <ImageZoomModal 
+          visible={showImageZoom}
+          imageUri={storyCover || ''}
+          onClose={() => setShowImageZoom(false)}
+        />
+
+        {/* Modal eliminar comentario */}
+        <Modal visible={showDeleteModal} transparent animationType="fade">
+          <View style={s.modalOverlay}>
+            <View style={s.modalBox}>
+              <Text style={s.modalTitle}>Eliminar comentario</Text>
+              <Text style={s.modalText}>
+                ¿Seguro que quieres eliminar este comentario?
+              </Text>
+
+              <View style={s.modalButtons}>
+                <TouchableOpacity
+                  onPress={() => setShowDeleteModal(false)}
+                  style={[s.modalBtn, { backgroundColor: '#333' }]}
+                >
+                  <Text style={s.modalBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
+                  style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
+                >
+                  <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Modal eliminar historia */}
+        <Modal visible={showDeleteStoryModal} transparent animationType="fade">
+          <View style={s.modalOverlay}>
+            <View style={s.modalBox}>
+              <View style={s.iconWrapDelete}>
+                <Ionicons name="warning" size={28} color="#ef4444" />
+              </View>
+              
+              <Text style={s.modalTitle}>Eliminar historia</Text>
+              <Text style={s.modalText}>
+                Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar esta historia?
+              </Text>
+
+              <View style={s.modalButtons}>
+                <TouchableOpacity
+                  onPress={() => setShowDeleteStoryModal(false)}
+                  style={[s.modalBtn, { backgroundColor: '#333' }]}
+                  disabled={deletingStory}
+                >
+                  <Text style={s.modalBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleDeleteStory}
+                  style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
+                  disabled={deletingStory}
+                >
+                  {deletingStory ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* 👇 SHEET ELEGANTE PARA NOTIFICACIONES */}
+        <Modal
+          visible={showSheet}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSheet(false)}
+        >
+          <View style={s.overlay}>
+            <View style={s.sheet}>
+              <View
+                style={[
+                  s.iconWrap,
+                  sheet.variant === 'error'
+                    ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
+                    : { backgroundColor: '#1F2937', borderColor: '#374151' },
+                ]}
+              >
+                <Ionicons
+                  name={sheet.variant === 'error' ? 'alert-circle' : 'checkmark-circle'}
+                  size={24}
+                  color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
+                />
+              </View>
+
+              <Text style={s.sheetTitle}>{sheet.title}</Text>
+              <Text style={s.sheetMsg}>{sheet.message}</Text>
+
+              <View style={s.sheetActions}>
+                <TouchableOpacity
+                  style={[s.sheetBtn, s.sheetBtnPrimary]}
+                  onPress={sheet.onConfirm}
+                >
+                  <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </GestureHandlerRootView>
+  );
+}
+
+// 👇 COMPONENTE PARA ZOOM CON PINCH + DOBLE TOQUE + FONDO TRANSPARENTE REAL
+function ImageZoomModal({ 
+  visible, 
+  imageUri, 
+  onClose 
+}: { 
+  visible: boolean; 
+  imageUri: string; 
+  onClose: () => void 
+}) {
+  const scale = useSharedValue(1);
+  const baseScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  const doubleTapRef = useCallback((ref: any) => ref, []);
+
+  const onDoubleTap = (event: any) => {
+    if (event.nativeEvent.state === State.ACTIVE) {
+      if (scale.value > 1) {
+        scale.value = withSpring(1);
+        baseScale.value = 1;
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+      } else {
+        scale.value = withSpring(2);
+        baseScale.value = 2;
+      }
+    }
+  };
+
+  const onPinch = (event: any) => {
+    scale.value = baseScale.value * event.nativeEvent.scale;
+  };
+
+  const onPinchEnd = () => {
+    baseScale.value = scale.value;
+    if (scale.value < 1) {
+      scale.value = withSpring(1);
+      baseScale.value = 1;
+      translateX.value = withSpring(0);
+      translateY.value = withSpring(0);
+    }
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={s.zoomOverlay}>
+        <TouchableOpacity 
+          style={s.zoomCloseBtn} 
+          onPress={onClose}
+          hitSlop={10}
+        >
+          <Ionicons name="close-circle" size={40} color="#fff" />
+        </TouchableOpacity>
+
+        <TapGestureHandler
+          ref={doubleTapRef}
+          onHandlerStateChange={onDoubleTap}
+          numberOfTaps={2}
+        >
+          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <PinchGestureHandler
+              onGestureEvent={onPinch}
+              onEnded={onPinchEnd}
+            >
+              <Animated.View style={animatedStyle}>
+                <Image 
+                  source={{ uri: imageUri }} 
+                  style={s.zoomImage}
+                  resizeMode="contain"
+                />
+              </Animated.View>
+            </PinchGestureHandler>
+          </Animated.View>
+        </TapGestureHandler>
+      </View>
+    </Modal>
   );
 }
 
@@ -648,6 +761,24 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+  },
+
+  // 👇 ESTILOS PARA ZOOM CON FONDO TRANSPARENTE REAL
+  zoomOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',    // ✅ FONDO 50% TRANSPARENTE
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomCloseBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  zoomImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.7,
   },
 
   // 👇 ESTILOS DEL SHEET ELEGANTE

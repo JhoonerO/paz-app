@@ -9,6 +9,8 @@ import {
   FlatList,
   Modal,
   ScrollView,
+  Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, FontAwesome6 } from '@expo/vector-icons';
@@ -18,6 +20,10 @@ import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
+import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const DEFAULT_AVATARS = [
   { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg') },
@@ -90,6 +96,10 @@ export default function Profile() {
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [showAvatarZoom, setShowAvatarZoom] = useState(false);
+
+  // 👇 NUEVO: Estado para modal de carga
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -322,7 +332,12 @@ export default function Profile() {
   useFocusEffect(useCallback(() => { loadFromSupabase(); }, [loadFromSupabase]));
 
   async function selectDefaultAvatar(avatarId: string) {
+    // 👇 BLOQUEO: Si ya está subiendo, no hacer nada
+    if (uploadingAvatar) return;
+
     try {
+      setUploadingAvatar(true); // 👈 Activar modal de carga
+
       const { data: authData } = await supabase.auth.getUser();
       const uid = authData.user?.id;
       if (!uid) return;
@@ -335,6 +350,7 @@ export default function Profile() {
       
       if (!asset.localUri) {
         showNotification('Error', 'No se pudo cargar la imagen.', 'error');
+        setUploadingAvatar(false);
         return;
       }
 
@@ -358,13 +374,16 @@ export default function Profile() {
 
       if (profErr) {
         showNotification('Error', 'No se pudo actualizar el avatar.', 'error');
+        setUploadingAvatar(false);
         return;
       }
 
       setAvatarUrl(url);
       setShowAvatarPicker(false);
+      setUploadingAvatar(false); // 👈 Desactivar modal de carga
       showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
     } catch (e: any) {
+      setUploadingAvatar(false);
       showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
     }
   }
@@ -384,6 +403,9 @@ export default function Profile() {
   }
 
   async function onChangeAvatar() {
+    // 👇 BLOQUEO: Si ya está subiendo, no hacer nada
+    if (uploadingAvatar) return;
+
     try {
       const { data: authData } = await supabase.auth.getUser();
       const uid = authData.user?.id;
@@ -391,6 +413,8 @@ export default function Profile() {
 
       const localUri = await pickImage();
       if (!localUri) return;
+
+      setUploadingAvatar(true); // 👈 Activar modal de carga
 
       const { ext, type } = getExtAndType(localUri);
       const ab = await uriToArrayBuffer(localUri);
@@ -408,13 +432,16 @@ export default function Profile() {
       if (profErr) {
         showNotification('Error', 'No se pudo actualizar el avatar. Verifica que tienes permisos.', 'error');
         console.error('Error al actualizar avatar:', profErr);
+        setUploadingAvatar(false);
         return;
       }
 
       setAvatarUrl(url);
       setShowAvatarPicker(false);
+      setUploadingAvatar(false); // 👈 Desactivar modal de carga
       showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
     } catch (e: any) {
+      setUploadingAvatar(false);
       showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
     }
   }
@@ -478,141 +505,276 @@ export default function Profile() {
   const listData = useMemo(() => (tab === 'mine' ? myStories : likedStories), [tab, myStories, likedStories]);
 
   return (
-    <View style={s.screen}>
-      <View style={s.avatarRow}>
-        <View style={s.avatarWrap}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={s.avatar} />
-          ) : (
-            <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
-          )}
-          <TouchableOpacity style={s.editAvatarBtn} onPress={() => setShowAvatarPicker(true)} hitSlop={10}>
-            <Ionicons name="camera-outline" size={16} color="#F3F4F6" />
-          </TouchableOpacity>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={s.screen}>
+        <View style={s.avatarRow}>
+          <View style={s.avatarWrap}>
+            <TouchableOpacity 
+              activeOpacity={0.9}
+              onPress={() => avatarUrl && setShowAvatarZoom(true)}
+            >
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={s.avatar} />
+              ) : (
+                <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={s.editAvatarBtn} 
+              onPress={() => setShowAvatarPicker(true)} 
+              hitSlop={10}
+            >
+              <Ionicons name="camera-outline" size={16} color="#F3F4F6" />
+            </TouchableOpacity>
+          </View>
+          <Text style={s.name}>{displayName}</Text>
         </View>
-        <Text style={s.name}>{displayName}</Text>
-      </View>
 
-      <View style={s.tabs}>
-        <View style={s.tabBtnContainer}>
-          <TouchableOpacity 
-            onPress={() => setTab('mine')} 
-            style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
-          >
-            <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
-              {`Mis Historias ${myStories.length}`}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => setTab('likes')} 
-            style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
-              {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
-            </View>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <FlatList
-        data={listData}
-        keyExtractor={(it) => it.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-        ListEmptyComponent={
-          <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
-            {tab === 'mine' ? 'Aún no has subido historias.' : 'Aún no tienes historias con "Me gusta".'}
-          </Text>
-        }
-        renderItem={({ item }) => (
-          <ProfileStoryCard
-            item={item}
-            currentUserId={userId}
-            avatarUrl={avatarUrl}
-            isMine={tab === 'mine'}
-            isLiked={likedIds.has(item.id)}
-            onToggleLike={() => toggleLike(item)}
-          />
-        )}
-        showsVerticalScrollIndicator={false}
-      />
-
-      <Modal
-        visible={showAvatarPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowAvatarPicker(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.avatarPickerSheet}>
-            <View style={s.avatarPickerHeader}>
-              <Text style={s.avatarPickerTitle}>Elige tu avatar</Text>
-              <TouchableOpacity onPress={() => setShowAvatarPicker(false)} hitSlop={10}>
-                <Ionicons name="close" size={24} color="#F3F4F6" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView contentContainerStyle={s.avatarGrid} showsVerticalScrollIndicator={false}>
-              {DEFAULT_AVATARS.map((avatar) => (
-                <TouchableOpacity
-                  key={avatar.id}
-                  onPress={() => selectDefaultAvatar(avatar.id)}
-                  style={s.avatarOption}
-                  activeOpacity={0.7}
-                >
-                  <Image source={avatar.source} style={s.avatarOptionImg} />
-                  <Text style={s.avatarOptionName}>{avatar.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <TouchableOpacity style={s.galleryBtn} onPress={onChangeAvatar}>
-              <Ionicons name="images-outline" size={20} color="#F3F4F6" />
-              <Text style={s.galleryBtnText}>Elegir de galería</Text>
+        <View style={s.tabs}>
+          <View style={s.tabBtnContainer}>
+            <TouchableOpacity 
+              onPress={() => setTab('mine')} 
+              style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
+            >
+              <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
+                {`Mis Historias ${myStories.length}`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => setTab('likes')} 
+              style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
+                {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
+              </View>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
 
-      <Modal
-        visible={showSheet}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSheet(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.sheet}>
-            <View
-              style={[
-                s.iconWrap,
-                sheet.variant === 'error'
-                  ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
-                  : { backgroundColor: '#1F2937', borderColor: '#374151' },
-              ]}
-            >
-              <Ionicons
-                name={sheet.variant === 'error' ? 'alert-circle' : 'information-circle'}
-                size={24}
-                color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
-              />
+        <FlatList
+          data={listData}
+          keyExtractor={(it) => it.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ListEmptyComponent={
+            <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
+              {tab === 'mine' ? 'Aún no has subido historias.' : 'Aún no tienes historias con "Me gusta".'}
+            </Text>
+          }
+          renderItem={({ item }) => (
+            <ProfileStoryCard
+              item={item}
+              currentUserId={userId}
+              avatarUrl={avatarUrl}
+              isMine={tab === 'mine'}
+              isLiked={likedIds.has(item.id)}
+              onToggleLike={() => toggleLike(item)}
+            />
+          )}
+          showsVerticalScrollIndicator={false}
+        />
+
+        {/* 👇 MODAL ZOOM DE AVATAR */}
+        <ImageZoomModal 
+          visible={showAvatarZoom}
+          imageUri={avatarUrl || ''}
+          onClose={() => setShowAvatarZoom(false)}
+        />
+
+        {/* 👇 MODAL DE CARGA DE FOTO */}
+        <Modal
+          visible={uploadingAvatar}
+          transparent
+          animationType="fade"
+        >
+          <View style={s.loadingOverlay}>
+            <View style={s.loadingBox}>
+              <ActivityIndicator size="large" color="#32B8C6" />
+              <Text style={s.loadingText}>Cambiando foto...</Text>
+              <Text style={s.loadingSubtext}>Por favor espera</Text>
             </View>
+          </View>
+        </Modal>
 
-            <Text style={s.sheetTitle}>{sheet.title}</Text>
-            <Text style={s.sheetMsg}>{sheet.message}</Text>
+        {/* Modal selector de avatar */}
+        <Modal
+          visible={showAvatarPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => !uploadingAvatar && setShowAvatarPicker(false)}
+        >
+          <View style={s.overlay}>
+            <View style={s.avatarPickerSheet}>
+              <View style={s.avatarPickerHeader}>
+                <Text style={s.avatarPickerTitle}>Elige tu avatar</Text>
+                <TouchableOpacity 
+                  onPress={() => setShowAvatarPicker(false)} 
+                  hitSlop={10}
+                  disabled={uploadingAvatar}
+                >
+                  <Ionicons name="close" size={24} color={uploadingAvatar ? "#666" : "#F3F4F6"} />
+                </TouchableOpacity>
+              </View>
 
-            <View style={s.sheetActions}>
-              <TouchableOpacity
-                style={[s.sheetBtn, s.sheetBtnPrimary]}
-                onPress={sheet.onConfirm}
+              <ScrollView contentContainerStyle={s.avatarGrid} showsVerticalScrollIndicator={false}>
+                {DEFAULT_AVATARS.map((avatar) => (
+                  <TouchableOpacity
+                    key={avatar.id}
+                    onPress={() => selectDefaultAvatar(avatar.id)}
+                    style={s.avatarOption}
+                    activeOpacity={0.7}
+                    disabled={uploadingAvatar}
+                  >
+                    <Image source={avatar.source} style={[s.avatarOptionImg, uploadingAvatar && { opacity: 0.5 }]} />
+                    <Text style={[s.avatarOptionName, uploadingAvatar && { opacity: 0.5 }]}>{avatar.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity 
+                style={[s.galleryBtn, uploadingAvatar && { opacity: 0.5 }]} 
+                onPress={onChangeAvatar}
+                disabled={uploadingAvatar}
               >
-                <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+                <Ionicons name="images-outline" size={20} color="#F3F4F6" />
+                <Text style={s.galleryBtnText}>Elegir de galería</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+
+        {/* Sheet de notificaciones */}
+        <Modal
+          visible={showSheet}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSheet(false)}
+        >
+          <View style={s.overlay}>
+            <View style={s.sheet}>
+              <View
+                style={[
+                  s.iconWrap,
+                  sheet.variant === 'error'
+                    ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
+                    : { backgroundColor: '#1F2937', borderColor: '#374151' },
+                ]}
+              >
+                <Ionicons
+                  name={sheet.variant === 'error' ? 'alert-circle' : 'information-circle'}
+                  size={24}
+                  color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
+                />
+              </View>
+
+              <Text style={s.sheetTitle}>{sheet.title}</Text>
+              <Text style={s.sheetMsg}>{sheet.message}</Text>
+
+              <View style={s.sheetActions}>
+                <TouchableOpacity
+                  style={[s.sheetBtn, s.sheetBtnPrimary]}
+                  onPress={sheet.onConfirm}
+                >
+                  <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </GestureHandlerRootView>
+  );
+}
+
+// Componente de zoom (sin cambios)
+function ImageZoomModal({ 
+  visible, 
+  imageUri, 
+  onClose 
+}: { 
+  visible: boolean; 
+  imageUri: string; 
+  onClose: () => void 
+}) {
+  const scale = useSharedValue(1);
+  const baseScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  const doubleTapRef = useCallback((ref: any) => ref, []);
+
+  const onDoubleTap = (event: any) => {
+    if (event.nativeEvent.state === State.ACTIVE) {
+      if (scale.value > 1) {
+        scale.value = withSpring(1);
+        baseScale.value = 1;
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+      } else {
+        scale.value = withSpring(2);
+        baseScale.value = 2;
+      }
+    }
+  };
+
+  const onPinch = (event: any) => {
+    scale.value = baseScale.value * event.nativeEvent.scale;
+  };
+
+  const onPinchEnd = () => {
+    baseScale.value = scale.value;
+    if (scale.value < 1) {
+      scale.value = withSpring(1);
+      baseScale.value = 1;
+      translateX.value = withSpring(0);
+      translateY.value = withSpring(0);
+    }
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+    borderRadius: scale.value === 1 ? (SCREEN_WIDTH * 0.9) / 2 : 0,
+  }));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={s.zoomOverlay}>
+        <TouchableOpacity 
+          style={s.zoomCloseBtn} 
+          onPress={onClose}
+          hitSlop={10}
+        >
+          <Ionicons name="close-circle" size={40} color="#fff" />
+        </TouchableOpacity>
+
+        <TapGestureHandler
+          ref={doubleTapRef}
+          onHandlerStateChange={onDoubleTap}
+          numberOfTaps={2}
+        >
+          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <PinchGestureHandler
+              onGestureEvent={onPinch}
+              onEnded={onPinchEnd}
+            >
+              <Animated.View style={animatedStyle}>
+                <Image 
+                  source={{ uri: imageUri }} 
+                  style={s.zoomImage}
+                  resizeMode="cover"
+                />
+              </Animated.View>
+            </PinchGestureHandler>
+          </Animated.View>
+        </TapGestureHandler>
+      </View>
+    </Modal>
   );
 }
 
@@ -779,6 +941,53 @@ tabTxtActive: {
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
+
+  // Estilos de zoom
+  zoomOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomCloseBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  zoomImage: {
+    width: SCREEN_WIDTH * 0.9,
+    height: SCREEN_WIDTH * 0.9,
+    borderRadius: (SCREEN_WIDTH * 0.9) / 2,
+  },
+
+  // 👇 ESTILOS PARA MODAL DE CARGA
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingBox: {
+    backgroundColor: '#121219',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1F1F27',
+    minWidth: 200,
+  },
+  loadingText: {
+    color: '#F3F4F6',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  loadingSubtext: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    marginTop: 4,
+  },
 
   overlay: {
     flex: 1,

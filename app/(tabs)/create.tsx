@@ -15,7 +15,7 @@ type InsertStory = {
   body: string;
   cover_url?: string | null;
   author_id: string;
-  author_name?: string | null;   // autor propio de la historia
+  author_name?: string | null;
 };
 
 function getExtAndType(uri: string) {
@@ -38,23 +38,42 @@ export default function CreateScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const [author, setAuthor] = useState(''); // autor de la *historia*, no del perfil
+  const [author, setAuthor] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // 👇 NUEVO: Estado para bloquear el botón de añadir portada
+  const [pickingImage, setPickingImage] = useState(false);
+
   async function pickImage() {
-    const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!granted) {
-      Alert.alert('Permiso requerido', 'Habilita el acceso a tu galería.');
-      return;
+    // 👇 BLOQUEO: Si ya está abriendo galería, no hacer nada
+    if (pickingImage) return;
+
+    setPickingImage(true); // 👈 Activar bloqueo
+
+    try {
+      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Permiso requerido', 'Habilita el acceso a tu galería.');
+        setPickingImage(false);
+        return;
+      }
+
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.9,
+      });
+
+      if (!res.canceled) {
+        setCoverUri(res.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error al seleccionar imagen:', error);
+    } finally {
+      setPickingImage(false); // 👈 Desactivar bloqueo
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-    });
-    if (!res.canceled) setCoverUri(res.assets[0].uri);
   }
 
   async function submit() {
@@ -65,12 +84,10 @@ export default function CreateScreen() {
 
     setSubmitting(true);
     try {
-      // Usuario
       const { data: userData, error: uErr } = await supabase.auth.getUser();
       if (uErr || !userData.user) throw new Error('Debes iniciar sesión para publicar.');
       const userId = userData.user.id;
 
-      // (Opcional) subir portada
       let cover_url: string | null = null;
       if (coverUri) {
         const { ext, type } = getExtAndType(coverUri);
@@ -84,20 +101,21 @@ export default function CreateScreen() {
         cover_url = pub?.publicUrl ?? null;
       }
 
-      // Insertar historia (SIN tocar el perfil del usuario)
       const payload: InsertStory = {
         title: title.trim(),
         body: body.trim(),
         cover_url,
         author_id: userId,
-        author_name: author.trim() || null, // se guarda en la historia
+        author_name: author.trim() || null,
       };
 
       const { error: insErr } = await supabase.from('stories').insert(payload);
       if (insErr) throw insErr;
 
-      // limpiar y volver al feed
-      setAuthor(''); setTitle(''); setBody(''); setCoverUri(null);
+      setAuthor(''); 
+      setTitle(''); 
+      setBody(''); 
+      setCoverUri(null);
       router.replace('/(tabs)');
     } catch (e: any) {
       console.error(e);
@@ -112,21 +130,26 @@ export default function CreateScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000ff' }} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={{ flex: 10 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-       
         <View style={s.container}>
-          {/* Portada (opcional) */}
-          <TouchableOpacity style={s.imagePicker} onPress={pickImage} activeOpacity={0.8}>
+          {/* 👇 PORTADA CON BLOQUEO */}
+          <TouchableOpacity 
+            style={[s.imagePicker, pickingImage && { opacity: 0.6 }]} 
+            onPress={pickImage} 
+            activeOpacity={0.8}
+            disabled={pickingImage} // 👈 Deshabilitar si está abriendo galería
+          >
             {coverUri ? (
               <Image source={{ uri: coverUri }} style={s.cover} />
             ) : (
               <View style={s.coverPlaceholder}>
                 <Ionicons name="image-outline" size={22} color="#9CA3AF" />
-                <Text style={{ color: '#9CA3AF', marginTop: 6 }}>Añadir portada (opcional)</Text>
+                <Text style={{ color: '#9CA3AF', marginTop: 6 }}>
+                  {pickingImage ? 'Abriendo galería...' : 'Añadir portada (opcional)'}
+                </Text>
               </View>
             )}
           </TouchableOpacity>
 
-          {/* Autor de la historia (no afecta tu perfil) */}
           <TextInput
             placeholder="Autor (opcional)"
             placeholderTextColor="#8A8A93"
@@ -135,7 +158,6 @@ export default function CreateScreen() {
             onChangeText={setAuthor}
           />
 
-          {/* Título */}
           <TextInput
             placeholder="Título"
             placeholderTextColor="#8A8A93"
@@ -144,7 +166,6 @@ export default function CreateScreen() {
             onChangeText={setTitle}
           />
 
-          {/* Historia */}
           <TextInput
             placeholder="Cuenta tu historia…"
             placeholderTextColor="#8A8A93"
@@ -154,7 +175,6 @@ export default function CreateScreen() {
             multiline
           />
 
-          {/* Publicar */}
           <TouchableOpacity
             style={[s.btn, submitting && { opacity: 0.6 }]}
             activeOpacity={0.85}

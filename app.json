@@ -8,8 +8,8 @@
     "backgroundColor": "#0B0B0F",
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/SplashPaz.png",
-      "resizeMode": "cover",
+      "image": "./assets/icon.png",        // ← Cambió a icon.png
+      "resizeMode": "contain",             // ← contain para el logo (centrado)
       "backgroundColor": "#0B0B0F"
     },
     "androidStatusBar": {
@@ -24,16 +24,16 @@
         "backgroundColor": "#0B0B0F"
       },
       "splash": {
-        "image": "./assets/SplashPaz.png",
-        "resizeMode": "cover",
+        "image": "./assets/icon.png",      // ← Cambió a icon.png
+        "resizeMode": "contain",           // ← contain para centrar el logo
         "backgroundColor": "#0B0B0F"
       }
     },
     "ios": {
       "icon": "./assets/icon.png",
       "splash": {
-        "image": "./assets/SplashPaz.png",
-        "resizeMode": "cover",
+        "image": "./assets/icon.png",      // ← Cambió a icon.png
+        "resizeMode": "contain",           // ← contain para centrar el logo
         "backgroundColor": "#0B0B0F"
       },
       "supportsTablet": true
