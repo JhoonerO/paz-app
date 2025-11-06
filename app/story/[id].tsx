@@ -13,8 +13,9 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Link } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -24,12 +25,15 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 
 type Params = {
   id: string;
   source?: 'home' | 'profile' | 'notifications';
 };
+
 
 type Comment = {
   id: string;
@@ -38,7 +42,10 @@ type Comment = {
   avatarUrl: string | null;
   text: string;
   createdAt: number;
+  is_admin: boolean;
+  created_at: string;
 };
+
 
 function getCategoryIcon(category: string) {
   switch (category) {
@@ -53,12 +60,15 @@ function getCategoryIcon(category: string) {
   }
 }
 
+
 export default function StoryDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id, source } = useLocalSearchParams<Params>();
 
+
   const storyId = useMemo(() => id ?? String(Date.now()), [id]);
+
 
   const [likeCount, setLikeCount] = useState<number>(0);
   const [liked, setLiked] = useState<boolean>(false);
@@ -67,24 +77,30 @@ export default function StoryDetail() {
   const [initialCommentCount, setInitialCommentCount] = useState<number>(0);
   const [sendingComment, setSendingComment] = useState(false);
 
+
   const [storyTitle, setStoryTitle] = useState<string>('Cargando...');
   const [storyBody, setStoryBody] = useState<string>('Cargando historia...');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState<string>('Autor');
   const [category, setCategory] = useState<string>('Urbana');
 
+
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedComment, setSelectedComment] = useState<Comment | null>(null);
+
 
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [showDeleteStoryModal, setShowDeleteStoryModal] = useState(false);
   const [deletingStory, setDeletingStory] = useState(false);
 
+
   const [showImageZoom, setShowImageZoom] = useState(false);
+
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -100,6 +116,7 @@ export default function StoryDetail() {
     onConfirm: () => setShowSheet(false),
     variant: 'info',
   });
+
 
   function showNotification(
     title: string,
@@ -118,7 +135,9 @@ export default function StoryDetail() {
     setShowSheet(true);
   }
 
+
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
 
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
@@ -128,6 +147,7 @@ export default function StoryDetail() {
       }
     );
 
+
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
@@ -135,11 +155,13 @@ export default function StoryDetail() {
       }
     );
 
+
     return () => {
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
   }, []);
+
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -148,6 +170,7 @@ export default function StoryDetail() {
     };
     fetchUser();
   }, []);
+
 
   useEffect(() => {
     const checkAdmin = async () => {
@@ -164,11 +187,13 @@ export default function StoryDetail() {
     if (userId) checkAdmin();
   }, [userId]);
 
+
   useEffect(() => {
     if (!userId) {
       setLoading(false);
       return;
     }
+
 
     const loadStory = async () => {
       try {
@@ -188,6 +213,7 @@ export default function StoryDetail() {
           .eq('id', storyId)
           .maybeSingle();
 
+
         if (!error && data) {
           setStoryTitle(data.title || 'Historia');
           setStoryBody(data.body || 'Sin contenido.');
@@ -198,11 +224,13 @@ export default function StoryDetail() {
           setStoryAuthorId(data.author_id || null);
           setCategory(data.category || 'Urbana');
 
+
           const { count, error: likeError } = await supabase
             .from('story_likes')
             .select('*', { count: 'exact', head: true })
             .eq('story_id', storyId)
             .eq('user_id', userId);
+
 
           setLiked((count ?? 0) > 0);
         } else {
@@ -217,8 +245,10 @@ export default function StoryDetail() {
       }
     };
 
+
     loadStory();
   }, [storyId, userId]);
+
 
   const fetchComments = useCallback(async () => {
     const { data: rows } = await supabase
@@ -227,34 +257,48 @@ export default function StoryDetail() {
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
+
     if (!rows) {
       setCommentList([]);
       return;
     }
 
+
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, display_name, avatar_url')
+      .select('id, display_name, avatar_url, is_admin, created_at')
       .in('id', userIds);
+
 
     const map = new Map(profiles?.map(p => [p.id, p]) ?? []);
 
-    const comments = rows.map((c: any) => ({
-      id: c.id,
-      userId: c.user_id,
-      author: map.get(c.user_id)?.display_name ?? 'Usuario',
-      avatarUrl: map.get(c.user_id)?.avatar_url ?? null,
-      text: c.text,
-      createdAt: new Date(c.created_at).getTime(),
-    }));
+
+    const comments = rows.map((c: any) => {
+      const profile = map.get(c.user_id);
+      const isEarlyUser = new Date(profile?.created_at || '').getTime() < new Date('2026-01-01').getTime();
+      
+      return {
+        id: c.id,
+        userId: c.user_id,
+        author: profile?.display_name ?? 'Usuario',
+        avatarUrl: profile?.avatar_url ?? null,
+        text: c.text,
+        createdAt: new Date(c.created_at).getTime(),
+        is_admin: profile?.is_admin ?? false,
+        created_at: profile?.created_at ?? '',
+      };
+    });
+
 
     setCommentList(comments);
   }, [storyId]);
 
+
   useEffect(() => {
     fetchComments();
   }, [storyId, fetchComments]);
+
 
   async function handleDeleteComment(commentId: string) {
     try {
@@ -281,6 +325,7 @@ export default function StoryDetail() {
     }
   }
 
+
   function confirmDelete(comment: Comment) {
     const canDelete = userId === comment.userId || userId === storyAuthorId || isAdmin;
     
@@ -293,6 +338,7 @@ export default function StoryDetail() {
     setShowDeleteModal(true);
   }
 
+
   async function toggleLike() {
     if (!userId) {
       showNotification(
@@ -303,9 +349,11 @@ export default function StoryDetail() {
       return;
     }
 
+
     const newLiked = !liked;
     setLiked(newLiked);
     setLikeCount(prev => (newLiked ? prev + 1 : prev - 1));
+
 
     try {
       if (liked) {
@@ -321,9 +369,11 @@ export default function StoryDetail() {
     }
   }
 
+
   async function addComment() {
     const text = commentInput.trim();
     if (!text || sendingComment) return;
+
 
     setSendingComment(true);
     try {
@@ -342,10 +392,12 @@ export default function StoryDetail() {
     }
   }
 
+
   function handleBack() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   }
+
 
   async function handleDeleteStory() {
     if (!userId || deletingStory) return;
@@ -359,6 +411,7 @@ export default function StoryDetail() {
       );
       return;
     }
+
 
     setDeletingStory(true);
     try {
@@ -388,7 +441,9 @@ export default function StoryDetail() {
     }
   }
 
+
   const displayCommentCount = commentList.length || initialCommentCount;
+
 
   if (loading) {
     return (
@@ -397,6 +452,7 @@ export default function StoryDetail() {
       </SafeAreaView>
     );
   }
+
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -420,6 +476,7 @@ export default function StoryDetail() {
           {!(userId === storyAuthorId || isAdmin) && <View style={{ width: 32 }} />}
         </View>
 
+
         <View style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
@@ -436,6 +493,7 @@ export default function StoryDetail() {
               </TouchableOpacity>
             )}
 
+
             <Text style={s.bodyText}>{storyBody}</Text>
             
             <View style={s.authorRow}>
@@ -445,6 +503,7 @@ export default function StoryDetail() {
                 <Text style={s.categoryText}>{category}</Text>
               </View>
             </View>
+
 
             <View style={s.metrics}>
               <TouchableOpacity style={s.iconRow} onPress={toggleLike} disabled={!userId}>
@@ -461,9 +520,11 @@ export default function StoryDetail() {
               </View>
             </View>
 
+
             <View style={{ gap: 8, marginTop: 4 }}>
               {commentList.map(c => {
                 const canDeleteThisComment = userId === c.userId || userId === storyAuthorId || isAdmin;
+                const isEarlyUser = new Date(c.created_at) < new Date('2026-01-01');
                 
                 return (
                   <TouchableOpacity
@@ -482,7 +543,16 @@ export default function StoryDetail() {
                             <Ionicons name="person-outline" size={14} color="#9CA3AF" />
                           </View>
                         )}
-                        <Text style={s.commentAuthor}>{c.author}</Text>
+                        {/* 👇 NUEVO: Nombre clickeable + insignias */}
+                        <Link href={{ pathname: '/profile/[id]', params: { id: c.userId } }} asChild>
+                          <TouchableOpacity>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Text style={s.commentAuthor}>{c.author}</Text>
+                              {c.is_admin && <MaterialIcons name="verified" size={12} color="#FFD700" />}
+                              {isEarlyUser && <MaterialIcons name="verified" size={12} color="#06B6D4" />}
+                            </View>
+                          </TouchableOpacity>
+                        </Link>
                       </View>
                       <Text style={s.commentText}>{c.text}</Text>
                     </View>
@@ -491,6 +561,7 @@ export default function StoryDetail() {
               })}
             </View>
           </ScrollView>
+
 
           <View 
             style={[
@@ -523,11 +594,13 @@ export default function StoryDetail() {
           </View>
         </View>
 
+
         <ImageZoomModal 
           visible={showImageZoom}
           imageUri={storyCover || ''}
           onClose={() => setShowImageZoom(false)}
         />
+
 
         <Modal visible={showDeleteModal} transparent animationType="fade">
           <View style={s.modalOverlay}>
@@ -537,6 +610,7 @@ export default function StoryDetail() {
                 ¿Seguro que quieres eliminar este comentario?
               </Text>
 
+
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteModal(false)}
@@ -544,6 +618,7 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
+
 
                 <TouchableOpacity
                   onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
@@ -555,6 +630,7 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
+
 
         <Modal visible={showDeleteStoryModal} transparent animationType="fade">
           <View style={s.modalOverlay}>
@@ -568,6 +644,7 @@ export default function StoryDetail() {
                 Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar esta historia?
               </Text>
 
+
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteStoryModal(false)}
@@ -576,6 +653,7 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
+
 
                 <TouchableOpacity
                   onPress={handleDeleteStory}
@@ -592,6 +670,7 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
+
 
         <Modal
           visible={showSheet}
@@ -616,8 +695,10 @@ export default function StoryDetail() {
                 />
               </View>
 
+
               <Text style={s.sheetTitle}>{sheet.title}</Text>
               <Text style={s.sheetMsg}>{sheet.message}</Text>
+
 
               <View style={s.sheetActions}>
                 <TouchableOpacity
@@ -635,6 +716,7 @@ export default function StoryDetail() {
   );
 }
 
+
 function ImageZoomModal({ 
   visible, 
   imageUri, 
@@ -649,7 +731,9 @@ function ImageZoomModal({
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
+
   const doubleTapRef = useCallback((ref: any) => ref, []);
+
 
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
@@ -665,9 +749,11 @@ function ImageZoomModal({
     }
   };
 
+
   const onPinch = (event: any) => {
     scale.value = baseScale.value * event.nativeEvent.scale;
   };
+
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
@@ -679,6 +765,7 @@ function ImageZoomModal({
     }
   };
 
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -686,6 +773,7 @@ function ImageZoomModal({
       { scale: scale.value },
     ],
   }));
+
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -697,6 +785,7 @@ function ImageZoomModal({
         >
           <Ionicons name="close-circle" size={40} color="#fff" />
         </TouchableOpacity>
+
 
         <TapGestureHandler
           ref={doubleTapRef}
@@ -722,6 +811,7 @@ function ImageZoomModal({
     </Modal>
   );
 }
+
 
 const s = StyleSheet.create({
   header: {

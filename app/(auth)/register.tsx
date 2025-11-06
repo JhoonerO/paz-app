@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { supabase } from '../../lib/supabase';
 
+
 const C = {
   bg: '#000000ff',
   card: '#010102ff',
@@ -29,15 +30,20 @@ const C = {
   like: '#ef4444',
 };
 
+
 export default function Register() {
   const router = useRouter();
+
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState(''); // 👈 NUEVO
   const [showPass, setShowPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false); // 👈 NUEVO
   const [loading, setLoading] = useState(false);
   const [showConfirmSheet, setShowConfirmSheet] = useState(false);
+
 
   const [sheet, setSheet] = useState<{
     title: string;
@@ -53,19 +59,22 @@ export default function Register() {
     variant: 'info',
   });
 
+
   function redirectUrl() {
     return Linking.createURL('/auth/callback');
   }
+
 
   async function onRegister() {
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
 
+
     // validaciones básicas
-    if (!trimmedName || !trimmedEmail || !pass.trim()) {
+    if (!trimmedName || !trimmedEmail || !pass.trim() || !confirmPass.trim()) {
       setSheet({
         title: 'Campos faltantes',
-        message: 'Nombre, correo y contraseña son obligatorios.',
+        message: 'Nombre, correo, contraseña y confirmación son obligatorios.',
         confirmText: 'Cerrar',
         onConfirm: () => setShowConfirmSheet(false),
         variant: 'error',
@@ -74,24 +83,40 @@ export default function Register() {
       return;
     }
 
-    // validación del dominio institucional
-    // validación del dominio institucional (excepto correo de soporte)
-      const isAllowedEmail = 
-        trimmedEmail.endsWith('@unipaz.edu.co') || 
-        trimmedEmail === 'soporte.upaz@gmail.com';
 
-      if (!isAllowedEmail) {
-        setSheet({
-          title: 'Correo no permitido',
-          message:
-            'Esta app solo es funcional con correos institucionales de la UNIPAZ.',
-          confirmText: 'Cerrar',
-          onConfirm: () => setShowConfirmSheet(false),
-          variant: 'error',
-        });
-        setShowConfirmSheet(true);
-        return;
-      }
+    // 👇 NUEVO: Validar que las contraseñas coincidan
+    if (pass !== confirmPass) {
+      setSheet({
+        title: 'Contraseñas no coinciden',
+        message: 'Las contraseñas no son iguales. Intenta de nuevo.',
+        confirmText: 'Cerrar',
+        onConfirm: () => setShowConfirmSheet(false),
+        variant: 'error',
+      });
+      setShowConfirmSheet(true);
+      return;
+    }
+
+
+    // validación del dominio institucional (excepto correo de soporte)
+    const isAllowedEmail = 
+      trimmedEmail.endsWith('@unipaz.edu.co') || 
+      trimmedEmail === 'soporte.upaz@gmail.com';
+
+
+    if (!isAllowedEmail) {
+      setSheet({
+        title: 'Correo no permitido',
+        message:
+          'Esta app solo es funcional con correos institucionales de la UNIPAZ.',
+        confirmText: 'Cerrar',
+        onConfirm: () => setShowConfirmSheet(false),
+        variant: 'error',
+      });
+      setShowConfirmSheet(true);
+      return;
+    }
+
 
     setLoading(true);
     try {
@@ -104,6 +129,7 @@ export default function Register() {
         },
       });
       if (error) throw error;
+
 
       setSheet({
         title: 'Confirma tu correo',
@@ -131,12 +157,14 @@ export default function Register() {
     }
   }
 
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
+
 
       <View style={s.wrap}>
         {/* Logo */}
@@ -148,6 +176,7 @@ export default function Register() {
           />
         </View>
 
+
         {/* Inputs */}
         <View style={s.card}>
           <TextInput
@@ -157,6 +186,7 @@ export default function Register() {
             value={name}
             onChangeText={setName}
           />
+
 
           <TextInput
             placeholder="Correo"
@@ -169,6 +199,7 @@ export default function Register() {
             onChangeText={setEmail}
           />
 
+
           <View style={s.pwdWrap}>
             <TextInput
               placeholder="Contraseña"
@@ -179,8 +210,6 @@ export default function Register() {
               style={[s.input, s.inputPwd]}
               value={pass}
               onChangeText={setPass}
-              returnKeyType="go"
-              onSubmitEditing={onRegister}
             />
             <TouchableOpacity
               onPress={() => setShowPass(v => !v)}
@@ -195,6 +224,35 @@ export default function Register() {
             </TouchableOpacity>
           </View>
 
+
+          {/* 👇 NUEVO: Campo de confirmar contraseña */}
+          <View style={[s.pwdWrap, { marginTop: 12 }]}>
+            <TextInput
+              placeholder="Confirmar contraseña"
+              placeholderTextColor={C.textSecondary}
+              secureTextEntry={!showConfirmPass}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[s.input, s.inputPwd]}
+              value={confirmPass}
+              onChangeText={setConfirmPass}
+              returnKeyType="go"
+              onSubmitEditing={onRegister}
+            />
+            <TouchableOpacity
+              onPress={() => setShowConfirmPass(v => !v)}
+              style={s.eyeBtn}
+              hitSlop={10}
+            >
+              <Ionicons
+                name={showConfirmPass ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color={C.textSecondary}
+              />
+            </TouchableOpacity>
+          </View>
+
+
           <TouchableOpacity
             activeOpacity={0.8}
             style={[s.btn, loading && { opacity: 0.6 }]}
@@ -204,6 +262,7 @@ export default function Register() {
             <Text style={s.btnText}>{loading ? 'Creando…' : 'Crear cuenta'}</Text>
           </TouchableOpacity>
 
+
           <Text style={s.footerText}>
             ¿Ya tienes cuenta?{' '}
             <Link href="/(auth)/login" style={s.link}>
@@ -212,6 +271,7 @@ export default function Register() {
           </Text>
         </View>
       </View>
+
 
       {/* Mini notificación */}
       <Modal
@@ -238,8 +298,10 @@ export default function Register() {
               />
             </View>
 
+
             <Text style={s.sheetTitle}>{sheet.title}</Text>
             <Text style={s.sheetMsg}>{sheet.message}</Text>
+
 
             <View style={s.sheetActions}>
               <TouchableOpacity
@@ -255,6 +317,7 @@ export default function Register() {
     </KeyboardAvoidingView>
   );
 }
+
 
 const s = StyleSheet.create({
   wrap: {
@@ -275,6 +338,7 @@ const s = StyleSheet.create({
   },
   logoImg: { width: 250, height: 250 },
   card: { gap: 0 },
+
 
   input: {
     backgroundColor: '#0f0f0fff',
@@ -325,6 +389,7 @@ const s = StyleSheet.create({
   btnText: { color: C.textPrimary, fontWeight: '600' },
   footerText: { color: C.textSecondary, marginTop: 16, textAlign: 'center' },
   link: { color: C.textPrimary, textDecorationLine: 'underline' },
+
 
   overlay: {
     flex: 1,
