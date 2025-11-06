@@ -195,14 +195,14 @@ export default function Feed() {
               const uid = userData.user?.id;
               if (!uid) return;
 
-
               const isLiked = likedSet.has(id);
-              if (isLiked) {
-                const { error } = await supabase
-                  .from('story_likes')
-                  .delete()
-                  .match({ story_id: id, user_id: uid });
-                if (!error) {
+              
+              try {
+                if (isLiked) {
+                  // 👇 USA LA FUNCIÓN unlike()
+                  const { unlike } = await import('../../lib/likes');
+                  await unlike(id);
+                  
                   setLikedSet(prev => {
                     const next = new Set(prev);
                     next.delete(id);
@@ -213,12 +213,11 @@ export default function Feed() {
                       st.id === id ? { ...st, likes_count: Math.max(0, (st.likes_count || 0) - 1) } : st
                     )
                   );
-                }
-              } else {
-                const { error } = await supabase
-                  .from('story_likes')
-                  .insert({ story_id: id, user_id: uid });
-                if (!error) {
+                } else {
+                  // 👇 USA LA FUNCIÓN like()
+                  const { like } = await import('../../lib/likes');
+                  await like(id);
+                  
                   setLikedSet(prev => new Set(prev).add(id));
                   setStories(prev =>
                     prev.map(st =>
@@ -226,10 +225,13 @@ export default function Feed() {
                     )
                   );
                 }
+              } catch (error) {
+                console.error('Error toggling like:', error);
               }
             }}
           />
         )}
+
         ListEmptyComponent={
           <Text style={{ color: C.textSecondary, textAlign: 'center', marginTop: 24 }}>
             Aún no hay historias.

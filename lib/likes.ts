@@ -1,4 +1,3 @@
-// lib/likes.ts
 import { supabase } from './supabase';
 
 async function getUid(): Promise<string | null> {
@@ -36,11 +35,6 @@ export async function isLiked(storyId: string): Promise<boolean> {
   return (count ?? 0) > 0;
 }
 
-/**
- * Inserta el like con UPSERT a través de un `insert(...).select()`:
- * - Si ya existe (PK story_id+user_id), no rompe.
- * - Forzamos retorno para poder detectar fallo real de RLS u otros.
- */
 export async function like(storyId: string) {
   const uid = await getUid();
   if (!uid) throw new Error('Debes iniciar sesión.');
@@ -49,22 +43,61 @@ export async function like(storyId: string) {
     .from('story_likes')
     .insert({ story_id: storyId, user_id: uid })
     .select()
-    .maybeSingle(); // fuerza que vuelvan filas o error
+    .maybeSingle();
 
-  // Ignora duplicado (ya estaba likeada)
   if (error && !/duplicate|already exists/i.test(error.message)) {
     throw error;
   }
+
+  // 👇 CREAR NOTIFICACIÓN
+  if (data && !error) {
+    try {
+      const { data: story } = await supabase
+        .from('stories')
+        .select('author_id')
+        .eq('id', storyId)
+        .single();
+
+      if (story && story.author_id !== uid) {
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: story.author_id,
+            actor_id: uid,
+            type: 'like',
+            story_id: storyId,
+            read: false
+          });
+      }
+    } catch (err) {
+      console.warn('Error creating like notification:', err);
+    }
+  }
+
   return data;
 }
 
 export async function unlike(storyId: string) {
   const uid = await getUid();
   if (!uid) throw new Error('Debes iniciar sesión.');
+  
   const { error } = await supabase
     .from('story_likes')
     .delete()
     .eq('story_id', storyId)
     .eq('user_id', uid);
+    
   if (error) throw error;
+
+  // 👇 ELIMINAR NOTIFICACIÓN
+  try {
+    await supabase
+      .from('notifications')
+      .delete()
+      .eq('story_id', storyId)
+      .eq('actor_id', uid)
+      .eq('type', 'like');
+  } catch (err) {
+    console.warn('Error deleting like notification:', err);
+  }
 }
