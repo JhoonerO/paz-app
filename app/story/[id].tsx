@@ -164,7 +164,6 @@ export default function StoryDetail() {
     if (userId) checkAdmin();
   }, [userId]);
 
-  // 👇 CARGAR HISTORIA + VERIFICAR LIKES - ARREGLADO
   useEffect(() => {
     if (!userId) {
       setLoading(false);
@@ -199,14 +198,12 @@ export default function StoryDetail() {
           setStoryAuthorId(data.author_id || null);
           setCategory(data.category || 'Urbana');
 
-          // 👇 VERIFICAR SI DISTE LIKE - CORRECTO
           const { count, error: likeError } = await supabase
             .from('story_likes')
             .select('*', { count: 'exact', head: true })
             .eq('story_id', storyId)
             .eq('user_id', userId);
 
-          //console.log('Like check - Story:', storyId, 'User:', userId, 'Count:', count, 'Error:', likeError);
           setLiked((count ?? 0) > 0);
         } else {
           setStoryTitle('Historia no encontrada');
@@ -261,22 +258,41 @@ export default function StoryDetail() {
 
   async function handleDeleteComment(commentId: string) {
     try {
-      await supabase.from('story_comments').delete().eq('id', commentId);
+      
+      const { error } = await supabase
+        .from('story_comments')
+        .delete()
+        .eq('id', commentId);
+      
+      if (error) {
+        console.error('❌ Error borrando:', error);
+        showNotification('Error', 'No se pudo borrar el comentario', 'error');
+        setShowDeleteModal(false);
+        return;
+      }
+      
       setCommentList(prev => prev.filter(c => c.id !== commentId));
       setShowDeleteModal(false);
-    } catch {
+      showNotification('Listo', 'Comentario eliminado', 'info');
+    } catch (err) {
+      console.error('❌ Error:', err);
+      showNotification('Error', 'No se pudo borrar el comentario', 'error');
       setShowDeleteModal(false);
     }
   }
 
   function confirmDelete(comment: Comment) {
-    const canDelete = userId === comment.userId || userId === storyAuthorId;
-    if (!canDelete) return;
+    const canDelete = userId === comment.userId || userId === storyAuthorId || isAdmin;
+    
+    if (!canDelete) {
+      showNotification('Sin permiso', 'No puedes borrar este comentario', 'error');
+      return;
+    }
+    
     setSelectedComment(comment);
     setShowDeleteModal(true);
   }
 
-  // 👇 TOGGLE LIKE - CORRECTO
   async function toggleLike() {
     if (!userId) {
       showNotification(
@@ -446,28 +462,33 @@ export default function StoryDetail() {
             </View>
 
             <View style={{ gap: 8, marginTop: 4 }}>
-              {commentList.map(c => (
-                <TouchableOpacity
-                  key={c.id}
-                  onLongPress={() => confirmDelete(c)}
-                  delayLongPress={400}
-                  activeOpacity={0.9}
-                >
-                  <View style={s.commentCard}>
-                    <View style={s.commentHeader}>
-                      {c.avatarUrl ? (
-                        <Image source={{ uri: c.avatarUrl }} style={s.commentAvatar} />
-                      ) : (
-                        <View style={[s.commentAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
-                          <Ionicons name="person-outline" size={14} color="#9CA3AF" />
-                        </View>
-                      )}
-                      <Text style={s.commentAuthor}>{c.author}</Text>
+              {commentList.map(c => {
+                const canDeleteThisComment = userId === c.userId || userId === storyAuthorId || isAdmin;
+                
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    onLongPress={() => canDeleteThisComment && confirmDelete(c)}
+                    delayLongPress={400}
+                    activeOpacity={0.9}
+                    disabled={!canDeleteThisComment}
+                  >
+                    <View style={[s.commentCard, !canDeleteThisComment && { opacity: 0.6 }]}>
+                      <View style={s.commentHeader}>
+                        {c.avatarUrl ? (
+                          <Image source={{ uri: c.avatarUrl }} style={s.commentAvatar} />
+                        ) : (
+                          <View style={[s.commentAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
+                            <Ionicons name="person-outline" size={14} color="#9CA3AF" />
+                          </View>
+                        )}
+                        <Text style={s.commentAuthor}>{c.author}</Text>
+                      </View>
+                      <Text style={s.commentText}>{c.text}</Text>
                     </View>
-                    <Text style={s.commentText}>{c.text}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </ScrollView>
 
@@ -508,7 +529,6 @@ export default function StoryDetail() {
           onClose={() => setShowImageZoom(false)}
         />
 
-        {/* Modal eliminar comentario */}
         <Modal visible={showDeleteModal} transparent animationType="fade">
           <View style={s.modalOverlay}>
             <View style={s.modalBox}>
@@ -536,7 +556,6 @@ export default function StoryDetail() {
           </View>
         </Modal>
 
-        {/* Modal eliminar historia */}
         <Modal visible={showDeleteStoryModal} transparent animationType="fade">
           <View style={s.modalOverlay}>
             <View style={s.modalBox}>
@@ -574,7 +593,6 @@ export default function StoryDetail() {
           </View>
         </Modal>
 
-        {/* SHEET ELEGANTE */}
         <Modal
           visible={showSheet}
           transparent

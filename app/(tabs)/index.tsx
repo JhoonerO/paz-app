@@ -5,7 +5,7 @@ import { Link, useFocusEffect, useRouter, useNavigation } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { supabase } from '../../lib/supabase';
-
+import { like, unlike } from '../../lib/likes';
 
 type DBStory = {
   id: string;
@@ -21,8 +21,6 @@ type DBStory = {
   profiles: { avatar_url: string | null }[] | null;
 };
 
-
-// 🎨 Paleta (igual al Figma)
 const C = {
   bg: '#000000ff',
   card: '#010102ff',
@@ -37,7 +35,6 @@ const C = {
   categoryText: '#9CA3AF',
 };
 
-
 export default function Feed() {
   const [stories, setStories] = useState<DBStory[]>([]);
   const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
@@ -45,18 +42,16 @@ export default function Feed() {
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
+  const isLoadedRef = useRef(false); // 👈 CACHÉ CON useRef
 
-  // referencia y tipo correcto de navegación para evitar errores TS
   type TabsNav = BottomTabNavigationProp<any>;
   const navigation = useNavigation<TabsNav>();
   const flatListRef = useRef<FlatList<DBStory>>(null);
-
 
   async function loadFeed() {
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData.user?.id ?? null;
     setUserId(uid);
-
 
     if (uid) {
       const { data: me } = await supabase
@@ -69,8 +64,6 @@ export default function Feed() {
       setUserAvatar(null);
     }
 
-
-    // 1) Traer historias + embed + category
     const { data: rows, error } = await supabase
       .from('stories')
       .select(`
@@ -89,19 +82,16 @@ export default function Feed() {
       .order('created_at', { ascending: false })
       .limit(100);
 
-
     if (error) {
       console.warn(error.message);
       setStories([]);
       setLikedSet(new Set());
+      isLoadedRef.current = true;
       return;
     }
 
-
     const rawStories = (rows ?? []) as DBStory[];
 
-
-    // 2) Refuerzo: traer avatares en bloque por author_id
     const authorIds = Array.from(new Set(rawStories.map(s => s.author_id)));
     let avatarMap = new Map<string, string | null>();
     if (authorIds.length) {
@@ -114,8 +104,6 @@ export default function Feed() {
       });
     }
 
-
-    // 3) Normalizar: si embed viene vacío, usar avatarMap (o tu propio avatar si es tu post)
     const normalized: DBStory[] = rawStories.map(st => {
       const embedded = st.profiles?.[0]?.avatar_url ?? null;
       const fallback =
@@ -123,16 +111,12 @@ export default function Feed() {
         avatarMap.get(st.author_id) ??
         null;
 
-
       if (embedded) return st;
       return { ...st, profiles: [{ avatar_url: fallback }] };
     });
 
-
     setStories(normalized);
 
-
-    // 4) Mis likes
     if (uid && normalized.length) {
       const ids = normalized.map(r => r.id);
       const { data: likeRows, error: likeErr } = await supabase
@@ -140,7 +124,6 @@ export default function Feed() {
         .select('story_id')
         .eq('user_id', uid)
         .in('story_id', ids);
-
 
       if (!likeErr && likeRows) {
         setLikedSet(new Set(likeRows.map(r => r.story_id as string)));
@@ -150,32 +133,37 @@ export default function Feed() {
     } else {
       setLikedSet(new Set());
     }
+
+    isLoadedRef.current = true; // 👈 MARCAR COMO CARGADO
   }
 
+  // 👇 CARGA SOLO SI NO ESTÁ EN CACHÉ
+  useEffect(() => {
+    if (!isLoadedRef.current) {
+      loadFeed();
+    }
+  }, []);
 
-  useEffect(() => { loadFeed(); }, []);
-  useFocusEffect(useCallback(() => { loadFeed(); }, []));
-
+  // 👇 NO RECARGA AL CAMBIAR DE VISTA
+  useFocusEffect(useCallback(() => {}, []));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    isLoadedRef.current = false; // 👈 FUERZA RECARGA
     await loadFeed();
     setRefreshing(false);
   }, []);
 
-
-  // Si se toca el icono de Home estando ya en Home, recarga y sube al inicio
+  // 👇 SCROLL AL TOP SIN RECARGAR
   useEffect(() => {
     const unsubscribe = navigation.addListener('tabPress', (e: any) => {
       if (navigation.isFocused()) {
         e.preventDefault?.();
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-        loadFeed();
       }
     });
     return unsubscribe;
   }, [navigation]);
-
 
   return (
     <View style={s.screen}>
@@ -196,13 +184,10 @@ export default function Feed() {
               if (!uid) return;
 
               const isLiked = likedSet.has(id);
-              
+
               try {
                 if (isLiked) {
-                  // 👇 USA LA FUNCIÓN unlike()
-                  const { unlike } = await import('../../lib/likes');
                   await unlike(id);
-                  
                   setLikedSet(prev => {
                     const next = new Set(prev);
                     next.delete(id);
@@ -214,10 +199,7 @@ export default function Feed() {
                     )
                   );
                 } else {
-                  // 👇 USA LA FUNCIÓN like()
-                  const { like } = await import('../../lib/likes');
                   await like(id);
-                  
                   setLikedSet(prev => new Set(prev).add(id));
                   setStories(prev =>
                     prev.map(st =>
@@ -231,7 +213,6 @@ export default function Feed() {
             }}
           />
         )}
-
         ListEmptyComponent={
           <Text style={{ color: C.textSecondary, textAlign: 'center', marginTop: 24 }}>
             Aún no hay historias.
@@ -242,7 +223,6 @@ export default function Feed() {
     </View>
   );
 }
-
 
 function getCategoryIcon(category: string) {
   switch (category) {
@@ -257,7 +237,6 @@ function getCategoryIcon(category: string) {
   }
 }
 
-
 function StoryCard({
   item,
   liked,
@@ -269,11 +248,9 @@ function StoryCard({
 }) {
   const router = useRouter();
 
-
   const hasCover = !!item.cover_url;
   const author = item.author_name?.trim() || 'Autor';
   const avatar = item.profiles?.[0]?.avatar_url ?? null;
-
 
   const excerpt = useMemo(() => {
     const txt = item.body || '';
@@ -281,10 +258,8 @@ function StoryCard({
     return txt.slice(0, 140) + '…';
   }, [item.body]);
 
-
   return (
     <View style={s.card}>
-      {/* ===== Header: AVATAR + NOMBRE + CATEGORÍA -> PERFIL ===== */}
       <Link href={{ pathname: '/profile/[id]', params: { id: item.author_id } }} asChild>
         <TouchableOpacity activeOpacity={0.85} style={s.headerRow}>
           {avatar ? (
@@ -295,8 +270,7 @@ function StoryCard({
             </View>
           )}
           <Text style={s.author}>{author}</Text>
-          
-          {/* 👇 ETIQUETA DE CATEGORÍA CON ICONOS ANTDESIGN */}
+
           <View style={s.categoryBadge}>
             {getCategoryIcon(item.category)}
             <Text style={s.categoryText}>{item.category}</Text>
@@ -304,8 +278,6 @@ function StoryCard({
         </TouchableOpacity>
       </Link>
 
-
-      {/* ===== Body: TÍTULO/IMAGEN/EXTRACTO -> HISTORIA ===== */}
       <TouchableOpacity
         activeOpacity={0.85}
         onPress={() =>
@@ -324,19 +296,12 @@ function StoryCard({
           })
         }
       >
-        {/* Título */}
         <Text style={s.cardTitle}>{item.title}</Text>
 
-
-        {/* Portada si existe */}
         {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
 
-
-        {/* Extracto */}
         <Text style={[s.excerpt, !hasCover && { marginTop: 6 }]}>{excerpt}</Text>
 
-
-        {/* Métricas + like */}
         <View style={s.footerRow}>
           <TouchableOpacity style={s.meta} onPress={() => onToggleLike(item.id)} activeOpacity={0.8}>
             <Ionicons name={liked ? 'heart' : 'heart-outline'} size={16} color={liked ? C.like : C.textSecondary} />
@@ -351,7 +316,6 @@ function StoryCard({
     </View>
   );
 }
-
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
