@@ -13,7 +13,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -23,12 +23,15 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 
 type Params = {
   id: string;
   source?: 'home' | 'profile' | 'notifications';
 };
+
 
 type Comment = {
   id: string;
@@ -39,12 +42,29 @@ type Comment = {
   createdAt: number;
 };
 
+
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case 'Mitos':
+      return <AntDesign name="gitlab" size={12} color="#9CA3AF" />;
+    case 'Leyenda':
+      return <AntDesign name="dingding" size={12} color="#9CA3AF" />;
+    case 'Urbana':
+      return <AntDesign name="heat-map" size={12} color="#9CA3AF" />;
+    default:
+      return null;
+  }
+}
+
+
 export default function StoryDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id, source } = useLocalSearchParams<Params>();
 
+
   const storyId = useMemo(() => id ?? String(Date.now()), [id]);
+
 
   const [likeCount, setLikeCount] = useState<number>(0);
   const [liked, setLiked] = useState<boolean>(false);
@@ -53,24 +73,31 @@ export default function StoryDetail() {
   const [initialCommentCount, setInitialCommentCount] = useState<number>(0);
   const [sendingComment, setSendingComment] = useState(false);
 
+
   const [storyTitle, setStoryTitle] = useState<string>('Cargando...');
   const [storyBody, setStoryBody] = useState<string>('Cargando historia...');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState<string>('Autor');
+  const [category, setCategory] = useState<string>('Urbana');
+
 
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedComment, setSelectedComment] = useState<Comment | null>(null);
+
 
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [showDeleteStoryModal, setShowDeleteStoryModal] = useState(false);
   const [deletingStory, setDeletingStory] = useState(false);
 
+
   // 👇 NUEVO: Estado para zoom con pinch + doble toque
   const [showImageZoom, setShowImageZoom] = useState(false);
+
 
   // 👇 ESTADO PARA NOTIFICACIONES ELEGANTES (SHEET)
   const [showSheet, setShowSheet] = useState(false);
@@ -87,6 +114,7 @@ export default function StoryDetail() {
     onConfirm: () => setShowSheet(false),
     variant: 'info',
   });
+
 
   function showNotification(
     title: string,
@@ -105,7 +133,9 @@ export default function StoryDetail() {
     setShowSheet(true);
   }
 
+
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
 
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
@@ -115,6 +145,7 @@ export default function StoryDetail() {
       }
     );
 
+
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
@@ -122,11 +153,13 @@ export default function StoryDetail() {
       }
     );
 
+
     return () => {
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
   }, []);
+
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -135,6 +168,7 @@ export default function StoryDetail() {
     };
     fetchUser();
   }, []);
+
 
   useEffect(() => {
     const checkAdmin = async () => {
@@ -151,6 +185,7 @@ export default function StoryDetail() {
     if (userId) checkAdmin();
   }, [userId]);
 
+
   useEffect(() => {
     const loadStory = async () => {
       const { data, error } = await supabase
@@ -163,10 +198,12 @@ export default function StoryDetail() {
           likes_count,
           comments_count,
           author_name,
-          author_id
+          author_id,
+          category
         `)
         .eq('id', storyId)
         .maybeSingle();
+
 
       if (!error && data) {
         setStoryTitle(data.title || 'Historia');
@@ -176,6 +213,7 @@ export default function StoryDetail() {
         setLikeCount(data.likes_count || 0);
         setInitialCommentCount(data.comments_count || 0);
         setStoryAuthorId(data.author_id || null);
+        setCategory(data.category || 'Urbana');
       } else {
         setStoryTitle('Historia no encontrada');
         setStoryBody('No se pudo cargar esta historia.');
@@ -184,8 +222,10 @@ export default function StoryDetail() {
       setLoading(false);
     };
 
+
     loadStory();
   }, [storyId]);
+
 
   const fetchComments = useCallback(async () => {
     const { data: rows } = await supabase
@@ -194,10 +234,12 @@ export default function StoryDetail() {
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
+
     if (!rows) {
       setCommentList([]);
       return;
     }
+
 
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
     const { data: profiles } = await supabase
@@ -205,7 +247,9 @@ export default function StoryDetail() {
       .select('id, display_name, avatar_url')
       .in('id', userIds);
 
+
     const map = new Map(profiles?.map(p => [p.id, p]) ?? []);
+
 
     const comments = rows.map((c: any) => ({
       id: c.id,
@@ -216,12 +260,15 @@ export default function StoryDetail() {
       createdAt: new Date(c.created_at).getTime(),
     }));
 
+
     setCommentList(comments);
   }, [storyId]);
+
 
   useEffect(() => {
     fetchComments();
   }, [storyId, fetchComments]);
+
 
   async function handleDeleteComment(commentId: string) {
     try {
@@ -233,12 +280,14 @@ export default function StoryDetail() {
     }
   }
 
+
   function confirmDelete(comment: Comment) {
     const canDelete = userId === comment.userId || userId === storyAuthorId;
     if (!canDelete) return;
     setSelectedComment(comment);
     setShowDeleteModal(true);
   }
+
 
   async function toggleLike() {
     if (!userId) {
@@ -250,8 +299,10 @@ export default function StoryDetail() {
       return;
     }
 
+
     setLiked(prev => !prev);
     setLikeCount(prev => (liked ? prev - 1 : prev + 1));
+
 
     if (liked) {
       await unlike(storyId);
@@ -260,9 +311,11 @@ export default function StoryDetail() {
     }
   }
 
+
   async function addComment() {
     const text = commentInput.trim();
     if (!text || sendingComment) return;
+
 
     setSendingComment(true);
     try {
@@ -281,10 +334,12 @@ export default function StoryDetail() {
     }
   }
 
+
   function handleBack() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   }
+
 
   async function handleDeleteStory() {
     if (!userId || deletingStory) return;
@@ -298,6 +353,7 @@ export default function StoryDetail() {
       );
       return;
     }
+
 
     setDeletingStory(true);
     try {
@@ -327,7 +383,9 @@ export default function StoryDetail() {
     }
   }
 
+
   const displayCommentCount = commentList.length || initialCommentCount;
+
 
   if (loading) {
     return (
@@ -336,6 +394,7 @@ export default function StoryDetail() {
       </SafeAreaView>
     );
   }
+
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -359,6 +418,7 @@ export default function StoryDetail() {
           {!(userId === storyAuthorId || isAdmin) && <View style={{ width: 32 }} />}
         </View>
 
+
         <View style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
@@ -376,8 +436,18 @@ export default function StoryDetail() {
               </TouchableOpacity>
             )}
 
+
             <Text style={s.bodyText}>{storyBody}</Text>
-            <Text style={s.author}>— {authorName}</Text>
+            
+            {/* 👇 AUTOR + CATEGORÍA */}
+            <View style={s.authorRow}>
+              <Text style={s.author}>— {authorName}</Text>
+              <View style={s.categoryBadge}>
+                {getCategoryIcon(category)}
+                <Text style={s.categoryText}>{category}</Text>
+              </View>
+            </View>
+
 
             <View style={s.metrics}>
               <TouchableOpacity style={s.iconRow} onPress={toggleLike}>
@@ -393,6 +463,7 @@ export default function StoryDetail() {
                 <Text style={s.metricTxt}>{displayCommentCount}</Text>
               </View>
             </View>
+
 
             <View style={{ gap: 8, marginTop: 4 }}>
               {commentList.map(c => (
@@ -419,6 +490,7 @@ export default function StoryDetail() {
               ))}
             </View>
           </ScrollView>
+
 
           <View 
             style={[
@@ -451,12 +523,14 @@ export default function StoryDetail() {
           </View>
         </View>
 
+
         {/* 👇 MODAL ZOOM CON PINCH + DOBLE TOQUE Y FONDO TRANSPARENTE */}
         <ImageZoomModal 
           visible={showImageZoom}
           imageUri={storyCover || ''}
           onClose={() => setShowImageZoom(false)}
         />
+
 
         {/* Modal eliminar comentario */}
         <Modal visible={showDeleteModal} transparent animationType="fade">
@@ -467,6 +541,7 @@ export default function StoryDetail() {
                 ¿Seguro que quieres eliminar este comentario?
               </Text>
 
+
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteModal(false)}
@@ -474,6 +549,7 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
+
 
                 <TouchableOpacity
                   onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
@@ -485,6 +561,7 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
+
 
         {/* Modal eliminar historia */}
         <Modal visible={showDeleteStoryModal} transparent animationType="fade">
@@ -499,6 +576,7 @@ export default function StoryDetail() {
                 Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar esta historia?
               </Text>
 
+
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteStoryModal(false)}
@@ -507,6 +585,7 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
+
 
                 <TouchableOpacity
                   onPress={handleDeleteStory}
@@ -523,6 +602,7 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
+
 
         {/* 👇 SHEET ELEGANTE PARA NOTIFICACIONES */}
         <Modal
@@ -548,8 +628,10 @@ export default function StoryDetail() {
                 />
               </View>
 
+
               <Text style={s.sheetTitle}>{sheet.title}</Text>
               <Text style={s.sheetMsg}>{sheet.message}</Text>
+
 
               <View style={s.sheetActions}>
                 <TouchableOpacity
@@ -567,6 +649,7 @@ export default function StoryDetail() {
   );
 }
 
+
 // 👇 COMPONENTE PARA ZOOM CON PINCH + DOBLE TOQUE + FONDO TRANSPARENTE REAL
 function ImageZoomModal({ 
   visible, 
@@ -582,7 +665,9 @@ function ImageZoomModal({
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
+
   const doubleTapRef = useCallback((ref: any) => ref, []);
+
 
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
@@ -598,9 +683,11 @@ function ImageZoomModal({
     }
   };
 
+
   const onPinch = (event: any) => {
     scale.value = baseScale.value * event.nativeEvent.scale;
   };
+
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
@@ -612,6 +699,7 @@ function ImageZoomModal({
     }
   };
 
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -619,6 +707,7 @@ function ImageZoomModal({
       { scale: scale.value },
     ],
   }));
+
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -630,6 +719,7 @@ function ImageZoomModal({
         >
           <Ionicons name="close-circle" size={40} color="#fff" />
         </TouchableOpacity>
+
 
         <TapGestureHandler
           ref={doubleTapRef}
@@ -656,6 +746,7 @@ function ImageZoomModal({
   );
 }
 
+
 const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
@@ -671,7 +762,30 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 10, gap: 12 },
   coverImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12 },
   bodyText: { color: '#E5E7EB', lineHeight: 22, fontSize: 15 },
-  author: { color: '#C9C9D1', marginTop: 4, fontStyle: 'italic' },
+  
+  // 👇 NUEVO: ROW PARA AUTOR + CATEGORÍA
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  author: { color: '#C9C9D1', fontStyle: 'italic' },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1a1a1aff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  categoryText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  
   metrics: {
     marginTop: 8,
     paddingVertical: 8,
@@ -703,6 +817,7 @@ const s = StyleSheet.create({
   commentAuthor: { color: '#fff', fontWeight: '600' },
   commentText: { color: '#d0d1d1ff' },
 
+
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -713,6 +828,7 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1F1F27',
   },
+
 
   input: {
     flex: 1,
@@ -763,6 +879,7 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
 
+
   // 👇 ESTILOS PARA ZOOM CON FONDO TRANSPARENTE REAL
   zoomOverlay: {
     flex: 1,
@@ -780,6 +897,7 @@ const s = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT * 0.7,
   },
+
 
   // 👇 ESTILOS DEL SHEET ELEGANTE
   overlay: {

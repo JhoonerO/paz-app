@@ -11,14 +11,17 @@ import {
   Modal,
   Dimensions,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, AntDesign } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Link, useNavigation, useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 
 type DBStory = {
   id: string;
@@ -30,16 +33,35 @@ type DBStory = {
   created_at: string;
   author_id: string;
   author_name: string | null;
+  category: string;
   profiles: { display_name: string | null; avatar_url: string | null }[] | null;
   liked_at?: string;
 };
+
 
 type ProfileRow = {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
   likes_public: boolean;
+  is_admin: boolean;
+  created_at: string;
 };
+
+
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case 'Mitos':
+      return <AntDesign name="gitlab" size={12} color="#9CA3AF" />;
+    case 'Leyenda':
+      return <AntDesign name="dingding" size={12} color="#9CA3AF" />;
+    case 'Urbana':
+      return <AntDesign name="heat-map" size={12} color="#9CA3AF" />;
+    default:
+      return null;
+  }
+}
+
 
 export default function PublicProfile() {
   const navigation = useNavigation();
@@ -50,6 +72,8 @@ export default function PublicProfile() {
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [likesPublic, setLikesPublic] = useState<boolean>(true);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [createdAt, setCreatedAt] = useState<string>('');
 
   const [tab, setTab] = useState<'mine' | 'likes'>('mine');
   const [stories, setStories] = useState<DBStory[]>([]);
@@ -57,8 +81,8 @@ export default function PublicProfile() {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
-  // 👇 NUEVO: Estado para zoom de avatar
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
+
 
   useLayoutEffect(() => {
     if (!fontsLoaded) return;
@@ -94,6 +118,7 @@ export default function PublicProfile() {
     });
   }, [navigation, router, fontsLoaded]);
 
+
   const loadFromSupabase = useCallback(async () => {
     try {
       if (!profileId) return;
@@ -104,7 +129,7 @@ export default function PublicProfile() {
 
       const { data: prof, error: profErr } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url, likes_public')
+        .select('id, display_name, avatar_url, likes_public, is_admin, created_at')
         .eq('id', profileId)
         .single<ProfileRow>();
       if (profErr) throw profErr;
@@ -112,12 +137,14 @@ export default function PublicProfile() {
       setDisplayName(prof?.display_name || 'Usuario');
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
+      setIsAdmin(prof?.is_admin ?? false);
+      setCreatedAt(prof?.created_at ?? '');
 
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
         .select(`
           id, title, body, cover_url, likes_count, comments_count, created_at,
-          author_id, author_name,
+          author_id, author_name, category,
           profiles!stories_author_id_fkey ( display_name, avatar_url )
         `)
         .eq('author_id', profileId)
@@ -176,7 +203,7 @@ export default function PublicProfile() {
             .from('stories')
             .select(`
               id, title, body, cover_url, likes_count, comments_count, created_at,
-              author_id, author_name,
+              author_id, author_name, category,
               profiles!stories_author_id_fkey ( display_name, avatar_url )
             `)
             .in('id', ids);
@@ -277,7 +304,9 @@ export default function PublicProfile() {
     }
   }, [profileId]);
 
+
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
+
 
   const toggleLike = useCallback(
     async (story: DBStory) => {
@@ -308,14 +337,15 @@ export default function PublicProfile() {
     [viewerId, likedIds]
   );
 
+
   const listData = useMemo(() => (tab === 'mine' ? stories : likedStories), [tab, stories, likedStories]);
+
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={s.screen}>
         <View style={s.avatarRow}>
           <View style={s.avatarWrap}>
-            {/* 👇 CLICK EN AVATAR PARA ZOOM */}
             <TouchableOpacity 
               activeOpacity={0.9}
               onPress={() => avatarUrl && setShowAvatarZoom(true)}
@@ -327,7 +357,17 @@ export default function PublicProfile() {
               )}
             </TouchableOpacity>
           </View>
-          <Text style={s.name}>{displayName}</Text>
+          
+          {/* 👇 NOMBRE + VERIFICADOS */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            <Text style={s.name}>{displayName}</Text>
+            {isAdmin && (
+              <MaterialIcons name="verified" size={16} color="#FFD700" />
+            )}
+            {new Date(createdAt) < new Date('2026-01-01') && (
+              <MaterialIcons name="verified" size={16} color="#06B6D4" />
+            )}
+          </View>
         </View>
 
         <View style={s.tabs}>
@@ -374,7 +414,7 @@ export default function PublicProfile() {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* 👇 MODAL ZOOM DE AVATAR CON PINCH + DOBLE TOQUE */}
+        {/* MODAL ZOOM DE AVATAR */}
         <ImageZoomModal 
           visible={showAvatarZoom}
           imageUri={avatarUrl || ''}
@@ -385,7 +425,7 @@ export default function PublicProfile() {
   );
 }
 
-// 👇 COMPONENTE PARA ZOOM DE AVATAR CON PINCH + DOBLE TOQUE
+
 function ImageZoomModal({ 
   visible, 
   imageUri, 
@@ -475,6 +515,7 @@ function ImageZoomModal({
   );
 }
 
+
 function PublicStoryCard({
   item,
   isLiked,
@@ -520,6 +561,12 @@ function PublicStoryCard({
             <View style={[s.avatarMini, { backgroundColor: '#0F1016' }]} />
           )}
           <Text style={s.authorTxt}>{authorForCard}</Text>
+          
+          {/* 👇 CATEGORÍA */}
+          <View style={s.categoryBadge}>
+            {getCategoryIcon(item.category)}
+            <Text style={s.categoryText}>{item.category}</Text>
+          </View>
         </View>
 
         <Text style={s.cardTitle}>{item.title}</Text>
@@ -548,6 +595,7 @@ function PublicStoryCard({
   );
 }
 
+
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
@@ -561,7 +609,7 @@ const s = StyleSheet.create({
   avatar: {
     width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F',
   },
-  name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700', flex: 1 },
+  name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700' },
   tabs: { marginTop: 24, paddingHorizontal: 16, marginBottom: 16 },
   tabBtnContainer: {
     flexDirection: 'row',
@@ -592,7 +640,21 @@ const s = StyleSheet.create({
     width: 26, height: 26, borderRadius: 13, backgroundColor: '#0F1016',
     borderWidth: 1, borderColor: '#1F1F27',
   },
-  authorTxt: { color: '#E5E7EB', fontWeight: '600' },
+  authorTxt: { color: '#E5E7EB', fontWeight: '600', flex: 1 },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1a1a1aff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  categoryText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
   cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
   excerpt: { color: '#D1D5DB' },
@@ -602,8 +664,6 @@ const s = StyleSheet.create({
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
-
-  // 👇 ESTILOS PARA ZOOM DE AVATAR
   zoomOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

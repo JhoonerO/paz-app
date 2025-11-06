@@ -13,8 +13,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Ionicons, FontAwesome6 } from '@expo/vector-icons';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
+import { Ionicons, FontAwesome6, AntDesign } from '@expo/vector-icons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
@@ -22,8 +22,11 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 
 const DEFAULT_AVATARS = [
   { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg') },
@@ -38,6 +41,7 @@ const DEFAULT_AVATARS = [
   { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg') },
 ];
 
+
 type DBStory = {
   id: string;
   title: string;
@@ -48,6 +52,7 @@ type DBStory = {
   created_at: string;
   author_id: string;
   author_name: string | null;
+  category: string;
   profiles: {
     display_name: string | null;
     avatar_url: string | null;
@@ -55,11 +60,15 @@ type DBStory = {
   liked_at?: string;
 };
 
+
 type ProfileRow = {
   display_name: string | null;
   avatar_url: string | null;
   likes_public: boolean;
+  is_admin: boolean;
+  created_at: string;
 };
+
 
 function getExtAndType(uri: string) {
   const ext = (uri.split('.').pop() || '').toLowerCase();
@@ -70,11 +79,27 @@ function getExtAndType(uri: string) {
   return { ext: 'jpg', type: 'image/jpeg' };
 }
 
+
 async function uriToArrayBuffer(uri: string) {
   const res: any = await fetch(uri);
   const ab = await res.arrayBuffer();
   return ab as ArrayBuffer;
 }
+
+
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case 'Mitos':
+      return <AntDesign name="gitlab" size={12} color="#9CA3AF" />;
+    case 'Leyenda':
+      return <AntDesign name="dingding" size={12} color="#9CA3AF" />;
+    case 'Urbana':
+      return <AntDesign name="heat-map" size={12} color="#9CA3AF" />;
+    default:
+      return null;
+  }
+}
+
 
 export default function Profile() {
   const navigation = useNavigation();
@@ -87,6 +112,8 @@ export default function Profile() {
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [likesPublic, setLikesPublic] = useState<boolean>(true);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [createdAt, setCreatedAt] = useState<string>('');
 
   const [tab, setTab] = useState<'mine' | 'likes'>('mine');
   const [myStories, setMyStories] = useState<DBStory[]>([]);
@@ -97,8 +124,6 @@ export default function Profile() {
 
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
-
-  // 👇 NUEVO: Estado para modal de carga
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [showSheet, setShowSheet] = useState(false);
@@ -132,59 +157,59 @@ export default function Profile() {
     setShowSheet(true);
   }
 
- useLayoutEffect(() => {
-  if (!fontsLoaded) return;
+  useLayoutEffect(() => {
+    if (!fontsLoaded) return;
 
-  navigation.setOptions({
-    headerTitle: () => (
-      <Text
-        style={{
-          fontFamily: 'Risque_400Regular',
-          fontSize: 22,
-          color: '#F3F4F6',
-          letterSpacing: 1,
-        }}
-      >
-        U-PAZ
-      </Text>
-    ),
-    headerTitleAlign: 'center',
-    headerLeft: () => (
-  <TouchableOpacity
-    onPress={() => router.push('/')}
-    hitSlop={10}
-    style={{ 
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-    }}
-  >
-    <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
-  </TouchableOpacity>
-),
-    headerRight: () => (
-      <TouchableOpacity
-        onPress={() => router.push('/profile/settings')}
-        style={{ marginRight: 12 }}
-        hitSlop={10}
-      >
-        <View style={{ width: 24, height: 24, justifyContent: 'center', alignItems: 'center' }}>
-          <MaterialCommunityIcons name="hexagon-outline" size={22} color="#ffffff" />
-          <View
-            style={{
-              position: 'absolute',
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              borderWidth: 1.5,
-              borderColor: '#ffffff',
-              backgroundColor: 'transparent',
-            }}
-          />
-        </View>
-      </TouchableOpacity>
-    ),
-  });
-}, [navigation, router, fontsLoaded]);
+    navigation.setOptions({
+      headerTitle: () => (
+        <Text
+          style={{
+            fontFamily: 'Risque_400Regular',
+            fontSize: 22,
+            color: '#F3F4F6',
+            letterSpacing: 1,
+          }}
+        >
+          U-PAZ
+        </Text>
+      ),
+      headerTitleAlign: 'center',
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={() => router.push('/')}
+          hitSlop={10}
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+          }}
+        >
+          <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => router.push('/profile/settings')}
+          style={{ marginRight: 12 }}
+          hitSlop={10}
+        >
+          <View style={{ width: 24, height: 24, justifyContent: 'center', alignItems: 'center' }}>
+            <MaterialCommunityIcons name="hexagon-outline" size={22} color="#ffffff" />
+            <View
+              style={{
+                position: 'absolute',
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                borderWidth: 1.5,
+                borderColor: '#ffffff',
+                backgroundColor: 'transparent',
+              }}
+            />
+          </View>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, router, fontsLoaded]);
 
   const loadFromSupabase = useCallback(async () => {
     try {
@@ -204,13 +229,15 @@ export default function Profile() {
 
       const { data: prof } = await supabase
         .from('profiles')
-        .select('display_name, avatar_url, likes_public')
+        .select('display_name, avatar_url, likes_public, is_admin, created_at')
         .eq('id', uid)
         .single<ProfileRow>();
 
       setDisplayName(prof?.display_name || 'Usuario');
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
+      setIsAdmin(prof?.is_admin ?? false);
+      setCreatedAt(prof?.created_at ?? '');
 
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
@@ -224,6 +251,7 @@ export default function Profile() {
           created_at,
           author_id,
           author_name,
+          category,
           profiles!stories_author_id_fkey ( display_name, avatar_url )
         `)
         .eq('author_id', uid)
@@ -269,6 +297,7 @@ export default function Profile() {
             created_at,
             author_id,
             author_name,
+            category,
             profiles!stories_author_id_fkey ( display_name, avatar_url )
           `)
           .in('id', ids);
@@ -332,11 +361,10 @@ export default function Profile() {
   useFocusEffect(useCallback(() => { loadFromSupabase(); }, [loadFromSupabase]));
 
   async function selectDefaultAvatar(avatarId: string) {
-    // 👇 BLOQUEO: Si ya está subiendo, no hacer nada
     if (uploadingAvatar) return;
 
     try {
-      setUploadingAvatar(true); // 👈 Activar modal de carga
+      setUploadingAvatar(true);
 
       const { data: authData } = await supabase.auth.getUser();
       const uid = authData.user?.id;
@@ -347,7 +375,7 @@ export default function Profile() {
 
       const asset = Asset.fromModule(avatar.source);
       await asset.downloadAsync();
-      
+
       if (!asset.localUri) {
         showNotification('Error', 'No se pudo cargar la imagen.', 'error');
         setUploadingAvatar(false);
@@ -361,7 +389,7 @@ export default function Profile() {
       const { error: upErr } = await supabase.storage
         .from('covers')
         .upload(path, ab, { upsert: true, contentType: type, cacheControl: '3600' });
-      
+
       if (upErr) throw upErr;
 
       const { data: pub } = supabase.storage.from('covers').getPublicUrl(path);
@@ -380,7 +408,7 @@ export default function Profile() {
 
       setAvatarUrl(url);
       setShowAvatarPicker(false);
-      setUploadingAvatar(false); // 👈 Desactivar modal de carga
+      setUploadingAvatar(false);
       showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
     } catch (e: any) {
       setUploadingAvatar(false);
@@ -403,7 +431,6 @@ export default function Profile() {
   }
 
   async function onChangeAvatar() {
-    // 👇 BLOQUEO: Si ya está subiendo, no hacer nada
     if (uploadingAvatar) return;
 
     try {
@@ -414,7 +441,7 @@ export default function Profile() {
       const localUri = await pickImage();
       if (!localUri) return;
 
-      setUploadingAvatar(true); // 👈 Activar modal de carga
+      setUploadingAvatar(true);
 
       const { ext, type } = getExtAndType(localUri);
       const ab = await uriToArrayBuffer(localUri);
@@ -438,7 +465,7 @@ export default function Profile() {
 
       setAvatarUrl(url);
       setShowAvatarPicker(false);
-      setUploadingAvatar(false); // 👈 Desactivar modal de carga
+      setUploadingAvatar(false);
       showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
     } catch (e: any) {
       setUploadingAvatar(false);
@@ -509,7 +536,7 @@ export default function Profile() {
       <View style={s.screen}>
         <View style={s.avatarRow}>
           <View style={s.avatarWrap}>
-            <TouchableOpacity 
+            <TouchableOpacity
               activeOpacity={0.9}
               onPress={() => avatarUrl && setShowAvatarZoom(true)}
             >
@@ -520,29 +547,39 @@ export default function Profile() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={s.editAvatarBtn} 
-              onPress={() => setShowAvatarPicker(true)} 
+            <TouchableOpacity
+              style={s.editAvatarBtn}
+              onPress={() => setShowAvatarPicker(true)}
               hitSlop={10}
             >
               <Ionicons name="camera-outline" size={16} color="#F3F4F6" />
             </TouchableOpacity>
           </View>
-          <Text style={s.name}>{displayName}</Text>
+
+          {/* 👇 NOMBRE + INSIGNIAS DE VERIFICADO */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            <Text style={s.name}>{displayName}</Text>
+            {isAdmin && (
+            <MaterialIcons name="verified" size={16} color="#FFD700" />
+          )}
+          {new Date(createdAt) < new Date('2026-01-01') && (
+            <MaterialIcons name="verified" size={16} color="#06B6D4" />
+          )}
+          </View>
         </View>
 
         <View style={s.tabs}>
           <View style={s.tabBtnContainer}>
-            <TouchableOpacity 
-              onPress={() => setTab('mine')} 
+            <TouchableOpacity
+              onPress={() => setTab('mine')}
               style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
             >
               <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
                 {`Mis Historias ${myStories.length}`}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => setTab('likes')} 
+            <TouchableOpacity
+              onPress={() => setTab('likes')}
               style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -576,14 +613,14 @@ export default function Profile() {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* 👇 MODAL ZOOM DE AVATAR */}
-        <ImageZoomModal 
+        {/* MODAL ZOOM DE AVATAR */}
+        <ImageZoomModal
           visible={showAvatarZoom}
           imageUri={avatarUrl || ''}
           onClose={() => setShowAvatarZoom(false)}
         />
 
-        {/* 👇 MODAL DE CARGA DE FOTO */}
+        {/* MODAL DE CARGA DE FOTO */}
         <Modal
           visible={uploadingAvatar}
           transparent
@@ -609,8 +646,8 @@ export default function Profile() {
             <View style={s.avatarPickerSheet}>
               <View style={s.avatarPickerHeader}>
                 <Text style={s.avatarPickerTitle}>Elige tu avatar</Text>
-                <TouchableOpacity 
-                  onPress={() => setShowAvatarPicker(false)} 
+                <TouchableOpacity
+                  onPress={() => setShowAvatarPicker(false)}
                   hitSlop={10}
                   disabled={uploadingAvatar}
                 >
@@ -633,8 +670,8 @@ export default function Profile() {
                 ))}
               </ScrollView>
 
-              <TouchableOpacity 
-                style={[s.galleryBtn, uploadingAvatar && { opacity: 0.5 }]} 
+              <TouchableOpacity
+                style={[s.galleryBtn, uploadingAvatar && { opacity: 0.5 }]}
                 onPress={onChangeAvatar}
                 disabled={uploadingAvatar}
               >
@@ -688,15 +725,14 @@ export default function Profile() {
   );
 }
 
-// Componente de zoom (sin cambios)
-function ImageZoomModal({ 
-  visible, 
-  imageUri, 
-  onClose 
-}: { 
-  visible: boolean; 
-  imageUri: string; 
-  onClose: () => void 
+function ImageZoomModal({
+  visible,
+  imageUri,
+  onClose
+}: {
+  visible: boolean;
+  imageUri: string;
+  onClose: () => void
 }) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
@@ -745,8 +781,8 @@ function ImageZoomModal({
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={s.zoomOverlay}>
-        <TouchableOpacity 
-          style={s.zoomCloseBtn} 
+        <TouchableOpacity
+          style={s.zoomCloseBtn}
           onPress={onClose}
           hitSlop={10}
         >
@@ -764,8 +800,8 @@ function ImageZoomModal({
               onEnded={onPinchEnd}
             >
               <Animated.View style={animatedStyle}>
-                <Image 
-                  source={{ uri: imageUri }} 
+                <Image
+                  source={{ uri: imageUri }}
                   style={s.zoomImage}
                   resizeMode="cover"
                 />
@@ -826,6 +862,12 @@ function ProfileStoryCard({
             <View style={[s.avatarMini, { backgroundColor: '#0F1016' }]} />
           )}
           <Text style={s.authorTxt}>{authorForCard}</Text>
+
+          {/* 👇 CATEGORÍA */}
+          <View style={s.categoryBadge}>
+            {getCategoryIcon(item.category)}
+            <Text style={s.categoryText}>{item.category}</Text>
+          </View>
         </View>
 
         <Text style={s.cardTitle}>{item.title}</Text>
@@ -878,60 +920,66 @@ const s = StyleSheet.create({
     backgroundColor: '#1F2937', alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: '#27272A',
   },
-  name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700', flex: 1 },
-
-tabs: { 
-  marginTop: 24, 
-  paddingHorizontal: 16,
-  marginBottom: 16,
-},
-
-tabBtnContainer: {
-  flexDirection: 'row',
-  height: 40,
-  borderRadius: 8,
-  backgroundColor: '#000000ff',
-  borderWidth: 2,
-  borderColor: '#202020ff',
-  width: '100%',
-  maxWidth: 320,
-  alignSelf: 'center',
-  overflow: 'hidden',
-},
-
-tabBtn: {
-  flex: 1,
-  alignItems: 'center',
-  justifyContent: 'center',
-  paddingHorizontal: 8,
-},
-
-tabBtnActive: {
-  backgroundColor: '#1f1f1fff',
-},
-
-tabTxt: {
-  color: '#F3F4F6',
-  fontWeight: '600',
-  fontSize: 16,
-},
-
-tabTxtActive: {
-  color: '#FFFFFF',
-  fontWeight: '700',
-},
-
+  name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700' },
+  tabs: {
+    marginTop: 24,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  tabBtnContainer: {
+    flexDirection: 'row',
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#000000ff',
+    borderWidth: 2,
+    borderColor: '#202020ff',
+    width: '100%',
+    maxWidth: 320,
+    alignSelf: 'center',
+    overflow: 'hidden',
+  },
+  tabBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  tabBtnActive: {
+    backgroundColor: '#1f1f1fff',
+  },
+  tabTxt: {
+    color: '#F3F4F6',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  tabTxtActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
   card: {
     backgroundColor: '#010102ff', borderRadius: 14, overflow: 'hidden', borderWidth: 1,
     borderColor: '#181818ff', padding: 12,
   },
-
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   avatarMini: {
     width: 26, height: 26, borderRadius: 13, backgroundColor: '#0F1016',
     borderWidth: 1, borderColor: '#1F1F27',
   },
-  authorTxt: { color: '#E5E7EB', fontWeight: '600' },
+  authorTxt: { color: '#E5E7EB', fontWeight: '600', flex: 1 },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1a1a1aff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  categoryText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
   cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
   excerpt: { color: '#D1D5DB' },
@@ -941,8 +989,6 @@ tabTxtActive: {
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
-
-  // Estilos de zoom
   zoomOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -960,8 +1006,6 @@ tabTxtActive: {
     height: SCREEN_WIDTH * 0.9,
     borderRadius: (SCREEN_WIDTH * 0.9) / 2,
   },
-
-  // 👇 ESTILOS PARA MODAL DE CARGA
   loadingOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
@@ -988,7 +1032,6 @@ tabTxtActive: {
     fontSize: 14,
     marginTop: 4,
   },
-
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -1014,22 +1057,22 @@ tabTxtActive: {
     alignSelf: 'center',
     marginBottom: 8,
   },
-  sheetTitle: { 
-    color: '#F3F4F6', 
-    fontWeight: '700', 
-    fontSize: 18, 
-    textAlign: 'center' 
+  sheetTitle: {
+    color: '#F3F4F6',
+    fontWeight: '700',
+    fontSize: 18,
+    textAlign: 'center'
   },
-  sheetMsg: { 
-    color: '#D1D5DB', 
-    textAlign: 'center', 
-    marginTop: 6 
+  sheetMsg: {
+    color: '#D1D5DB',
+    textAlign: 'center',
+    marginTop: 6
   },
-  sheetActions: { 
-    flexDirection: 'row', 
-    gap: 10, 
-    marginTop: 16, 
-    justifyContent: 'center' 
+  sheetActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    justifyContent: 'center'
   },
   sheetBtn: {
     height: 44,
@@ -1039,15 +1082,14 @@ tabTxtActive: {
     justifyContent: 'center',
     borderWidth: 1,
   },
-  sheetBtnPrimary: { 
-    backgroundColor: '#1F2937', 
-    borderColor: '#27272A' 
+  sheetBtnPrimary: {
+    backgroundColor: '#1F2937',
+    borderColor: '#27272A'
   },
-  sheetBtnText: { 
-    fontWeight: '600', 
-    color: '#fff' 
+  sheetBtnText: {
+    fontWeight: '600',
+    color: '#fff'
   },
-
   avatarPickerSheet: {
     width: '100%',
     maxHeight: '75%',
