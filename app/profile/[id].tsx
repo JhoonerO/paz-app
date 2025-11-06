@@ -19,9 +19,7 @@ import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
-
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 
 type DBStory = {
   id: string;
@@ -38,7 +36,6 @@ type DBStory = {
   liked_at?: string;
 };
 
-
 type ProfileRow = {
   id: string;
   display_name: string | null;
@@ -47,7 +44,6 @@ type ProfileRow = {
   is_admin: boolean;
   created_at: string;
 };
-
 
 function getCategoryIcon(category: string) {
   switch (category) {
@@ -61,7 +57,6 @@ function getCategoryIcon(category: string) {
       return null;
   }
 }
-
 
 export default function PublicProfile() {
   const navigation = useNavigation();
@@ -83,6 +78,11 @@ export default function PublicProfile() {
 
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
 
+  // 👇 NUEVO: Modal de insignias
+  const [badgeModal, setBadgeModal] = useState<{ visible: boolean; type: 'admin' | 'early' | null }>({
+    visible: false,
+    type: null,
+  });
 
   useLayoutEffect(() => {
     if (!fontsLoaded) return;
@@ -117,7 +117,6 @@ export default function PublicProfile() {
       headerTintColor: '#F3F4F6',
     });
   }, [navigation, router, fontsLoaded]);
-
 
   const loadFromSupabase = useCallback(async () => {
     try {
@@ -304,9 +303,7 @@ export default function PublicProfile() {
     }
   }, [profileId]);
 
-
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
-
 
   const toggleLike = useCallback(
     async (story: DBStory) => {
@@ -337,9 +334,8 @@ export default function PublicProfile() {
     [viewerId, likedIds]
   );
 
-
   const listData = useMemo(() => (tab === 'mine' ? stories : likedStories), [tab, stories, likedStories]);
-
+  const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -358,15 +354,27 @@ export default function PublicProfile() {
             </TouchableOpacity>
           </View>
           
-          {/* 👇 NOMBRE + VERIFICADOS */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+          {/* 👇 NOMBRE MÁS GRANDE + INSIGNIAS CLICKEABLES */}
+          <View style={{ flex: 1 }}>
             <Text style={s.name}>{displayName}</Text>
-            {isAdmin && (
-              <MaterialIcons name="verified" size={16} color="#FFD700" />
-            )}
-            {new Date(createdAt) < new Date('2026-01-01') && (
-              <MaterialIcons name="verified" size={16} color="#06B6D4" />
-            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              {isAdmin && (
+                <TouchableOpacity
+                  onPress={() => setBadgeModal({ visible: true, type: 'admin' })}
+                  hitSlop={8}
+                >
+                  <MaterialIcons name="verified" size={24} color="#FFD700" />
+                </TouchableOpacity>
+              )}
+              {isEarlyUser && (
+                <TouchableOpacity
+                  onPress={() => setBadgeModal({ visible: true, type: 'early' })}
+                  hitSlop={8}
+                >
+                  <MaterialIcons name="verified" size={24} color="#06B6D4" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
 
@@ -414,6 +422,44 @@ export default function PublicProfile() {
           showsVerticalScrollIndicator={false}
         />
 
+        {/* 👇 MODAL DE INSIGNIAS */}
+        <Modal visible={badgeModal.visible} transparent animationType="fade">
+          <View style={s.badgeOverlay}>
+            <TouchableOpacity
+              style={s.badgeBackdrop}
+              onPress={() => setBadgeModal({ visible: false, type: null })}
+            />
+            <View style={s.badgeContent}>
+              <TouchableOpacity
+                style={s.badgeCloseBtn}
+                onPress={() => setBadgeModal({ visible: false, type: null })}
+              >
+                <Ionicons name="close-circle" size={28} color="#F3F4F6" />
+              </TouchableOpacity>
+
+              {badgeModal.type === 'admin' && (
+                <View style={s.badgeInfo}>
+                  <MaterialIcons name="verified" size={56} color="#FFD700" />
+                  <Text style={s.badgeTitle}>Administrador</Text>
+                  <Text style={s.badgeDesc}>
+                    Esta insignia indica que eres administrador de la aplicación U-PAZ. Tienes permisos especiales para moderar y gestionar contenido.
+                  </Text>
+                </View>
+              )}
+
+              {badgeModal.type === 'early' && (
+                <View style={s.badgeInfo}>
+                  <MaterialIcons name="verified" size={56} color="#06B6D4" />
+                  <Text style={s.badgeTitle}>Usuario Temprano</Text>
+                  <Text style={s.badgeDesc}>
+                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025. ¡Gracias por ser parte de nuestro inicio!
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
+
         {/* MODAL ZOOM DE AVATAR */}
         <ImageZoomModal 
           visible={showAvatarZoom}
@@ -424,7 +470,6 @@ export default function PublicProfile() {
     </GestureHandlerRootView>
   );
 }
-
 
 function ImageZoomModal({ 
   visible, 
@@ -515,7 +560,6 @@ function ImageZoomModal({
   );
 }
 
-
 function PublicStoryCard({
   item,
   isLiked,
@@ -562,7 +606,6 @@ function PublicStoryCard({
           )}
           <Text style={s.authorTxt}>{authorForCard}</Text>
           
-          {/* 👇 CATEGORÍA */}
           <View style={s.categoryBadge}>
             {getCategoryIcon(item.category)}
             <Text style={s.categoryText}>{item.category}</Text>
@@ -595,12 +638,11 @@ function PublicStoryCard({
   );
 }
 
-
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 16,
     marginTop: 24,
     gap: 12,
@@ -609,7 +651,53 @@ const s = StyleSheet.create({
   avatar: {
     width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F',
   },
-  name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700' },
+  name: { color: '#F3F4F6', fontSize: 28, fontWeight: '700' },
+  // 👇 NUEVO: Estilos para el modal de insignias
+  badgeOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeBackdrop: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+  badgeContent: {
+    backgroundColor: '#121219',
+    borderRadius: 20,
+    padding: 24,
+    width: '85%',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: '#1F1F27',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  badgeCloseBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 20,
+  },
+  badgeInfo: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  badgeTitle: {
+    color: '#F3F4F6',
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  badgeDesc: {
+    color: '#D1D5DB',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
   tabs: { marginTop: 24, paddingHorizontal: 16, marginBottom: 16 },
   tabBtnContainer: {
     flexDirection: 'row',

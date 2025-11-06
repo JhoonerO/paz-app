@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../lib/supabase';
 
@@ -34,6 +35,7 @@ const C = {
 
 export default function Login() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -174,7 +176,7 @@ export default function Login() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
-      <View style={s.wrap}>
+      <View style={[s.wrap, { paddingBottom: insets.bottom + 24 }]}>
         <View style={s.logoFrame}>
           <Image source={require('../../assets/icon.png')} style={s.logoImg} resizeMode="contain" />
         </View>
@@ -214,7 +216,6 @@ export default function Login() {
             </TouchableOpacity>
           </View>
 
-          {/* 👇 NUEVO: Botón para recuperar contraseña */}
           <TouchableOpacity 
             onPress={() => router.push('/(auth)/forgot-password')}
             style={s.forgotBtn}
@@ -237,18 +238,20 @@ export default function Login() {
           </TouchableOpacity>
         </View>
 
-        <View style={s.footer}>
-          <Text style={s.footerText}>
-            ¿No tienes una cuenta?{' '}
-            <Link href="/(auth)/register" style={s.link}>
-              Regístrate
+        <View style={[s.footer, { paddingBottom: insets.bottom }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Text style={s.footerText}>¿No tienes una cuenta?{' '}</Text>
+            <Link href="/(auth)/register" asChild>
+              <TouchableOpacity>
+                <Text style={s.link}>Regístrate</Text>
+              </TouchableOpacity>
             </Link>
-          </Text>
+          </View>
         </View>
       </View>
 
       <Modal visible={showSheet} transparent animationType="fade" onRequestClose={() => setShowSheet(false)}>
-        <View style={s.overlay}>
+        <View style={[s.overlay, { paddingBottom: insets.bottom }]}>
           <Pressable style={s.backdrop} onPress={() => setShowSheet(false)} />
           <View style={s.sheet}>
             <View
@@ -334,7 +337,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // 👇 NUEVO: Botón de recuperar contraseña
   forgotBtn: {
     alignSelf: 'center',
     marginTop: 12,
@@ -366,9 +368,10 @@ const s = StyleSheet.create({
     right: 0,
     bottom: 24,
     alignItems: 'center',
+    paddingHorizontal: 16,
   },
-  footerText: { color: C.textSecondary, textAlign: 'center' },
-  link: { color: C.textPrimary, textDecorationLine: 'underline' },
+  footerText: { color: C.textSecondary, textAlign: 'center', fontSize: 14 },
+  link: { color: C.textPrimary, textDecorationLine: 'underline', fontSize: 14 },
 
   overlay: {
     flex: 1,

@@ -24,9 +24,7 @@ import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State }
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
-
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 
 const DEFAULT_AVATARS = [
   { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg') },
@@ -40,7 +38,6 @@ const DEFAULT_AVATARS = [
   { id: 'rana', name: 'Rana', source: require('../../imagenes_de_Perfil/rana.jpg') },
   { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg') },
 ];
-
 
 type DBStory = {
   id: string;
@@ -60,7 +57,6 @@ type DBStory = {
   liked_at?: string;
 };
 
-
 type ProfileRow = {
   display_name: string | null;
   avatar_url: string | null;
@@ -68,7 +64,6 @@ type ProfileRow = {
   is_admin: boolean;
   created_at: string;
 };
-
 
 function getExtAndType(uri: string) {
   const ext = (uri.split('.').pop() || '').toLowerCase();
@@ -79,13 +74,11 @@ function getExtAndType(uri: string) {
   return { ext: 'jpg', type: 'image/jpeg' };
 }
 
-
 async function uriToArrayBuffer(uri: string) {
   const res: any = await fetch(uri);
   const ab = await res.arrayBuffer();
   return ab as ArrayBuffer;
 }
-
 
 function getCategoryIcon(category: string) {
   switch (category) {
@@ -99,7 +92,6 @@ function getCategoryIcon(category: string) {
       return null;
   }
 }
-
 
 export default function Profile() {
   const navigation = useNavigation();
@@ -125,6 +117,12 @@ export default function Profile() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  // 👇 NUEVO: Modal de insignias
+  const [badgeModal, setBadgeModal] = useState<{ visible: boolean; type: 'admin' | 'early' | null }>({
+    visible: false,
+    type: null,
+  });
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -530,6 +528,7 @@ export default function Profile() {
   );
 
   const listData = useMemo(() => (tab === 'mine' ? myStories : likedStories), [tab, myStories, likedStories]);
+  const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -556,15 +555,27 @@ export default function Profile() {
             </TouchableOpacity>
           </View>
 
-          {/* 👇 NOMBRE + INSIGNIAS DE VERIFICADO */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+          {/* 👇 NOMBRE MÁS GRANDE + INSIGNIAS CLICKEABLES */}
+          <View style={{ flex: 1 }}>
             <Text style={s.name}>{displayName}</Text>
-            {isAdmin && (
-            <MaterialIcons name="verified" size={16} color="#FFD700" />
-          )}
-          {new Date(createdAt) < new Date('2026-01-01') && (
-            <MaterialIcons name="verified" size={16} color="#06B6D4" />
-          )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              {isAdmin && (
+                <TouchableOpacity
+                  onPress={() => setBadgeModal({ visible: true, type: 'admin' })}
+                  hitSlop={8}
+                >
+                  <MaterialIcons name="verified" size={24} color="#FFD700" />
+                </TouchableOpacity>
+              )}
+              {isEarlyUser && (
+                <TouchableOpacity
+                  onPress={() => setBadgeModal({ visible: true, type: 'early' })}
+                  hitSlop={8}
+                >
+                  <MaterialIcons name="verified" size={24} color="#06B6D4" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
 
@@ -612,6 +623,44 @@ export default function Profile() {
           )}
           showsVerticalScrollIndicator={false}
         />
+
+        {/* 👇 MODAL DE INSIGNIAS */}
+        <Modal visible={badgeModal.visible} transparent animationType="fade">
+          <View style={s.badgeOverlay}>
+            <TouchableOpacity
+              style={s.badgeBackdrop}
+              onPress={() => setBadgeModal({ visible: false, type: null })}
+            />
+            <View style={s.badgeContent}>
+              <TouchableOpacity
+                style={s.badgeCloseBtn}
+                onPress={() => setBadgeModal({ visible: false, type: null })}
+              >
+                <Ionicons name="close-circle" size={28} color="#F3F4F6" />
+              </TouchableOpacity>
+
+              {badgeModal.type === 'admin' && (
+                <View style={s.badgeInfo}>
+                  <MaterialIcons name="verified" size={56} color="#FFD700" />
+                  <Text style={s.badgeTitle}>Administrador</Text>
+                  <Text style={s.badgeDesc}>
+                    Esta insignia indica que eres administrador de la aplicación U-PAZ. Tienes permisos especiales para moderar y gestionar contenido.
+                  </Text>
+                </View>
+              )}
+
+              {badgeModal.type === 'early' && (
+                <View style={s.badgeInfo}>
+                  <MaterialIcons name="verified" size={56} color="#06B6D4" />
+                  <Text style={s.badgeTitle}>Usuario Temprano</Text>
+                  <Text style={s.badgeDesc}>
+                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025. ¡Gracias por ser parte de nuestro inicio!
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
 
         {/* MODAL ZOOM DE AVATAR */}
         <ImageZoomModal
@@ -863,7 +912,6 @@ function ProfileStoryCard({
           )}
           <Text style={s.authorTxt}>{authorForCard}</Text>
 
-          {/* 👇 CATEGORÍA */}
           <View style={s.categoryBadge}>
             {getCategoryIcon(item.category)}
             <Text style={s.categoryText}>{item.category}</Text>
@@ -906,7 +954,7 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 16,
     marginTop: 24,
     gap: 12,
@@ -920,7 +968,53 @@ const s = StyleSheet.create({
     backgroundColor: '#1F2937', alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: '#27272A',
   },
-  name: { color: '#F3F4F6', fontSize: 24, fontWeight: '700' },
+  name: { color: '#F3F4F6', fontSize: 28, fontWeight: '700' },
+  // 👇 NUEVO: Estilos para el modal de insignias
+  badgeOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeBackdrop: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+  badgeContent: {
+    backgroundColor: '#121219',
+    borderRadius: 20,
+    padding: 24,
+    width: '85%',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: '#1F1F27',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  badgeCloseBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 20,
+  },
+  badgeInfo: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  badgeTitle: {
+    color: '#F3F4F6',
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  badgeDesc: {
+    color: '#D1D5DB',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
   tabs: {
     marginTop: 24,
     paddingHorizontal: 16,
