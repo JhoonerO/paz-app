@@ -8,10 +8,6 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 
-
-
-
-
 type DBStory = {
   id: string;
   title: string;
@@ -26,9 +22,6 @@ type DBStory = {
   profiles: { avatar_url: string | null; is_admin: boolean; created_at: string }[] | null;
 };
 
-
-
-
 type LikeUser = {
   id: string;
   display_name: string | null;
@@ -36,9 +29,6 @@ type LikeUser = {
   is_admin: boolean;
   created_at: string;
 };
-
-
-
 
 const C = {
   bg: '#000000ff',
@@ -54,9 +44,6 @@ const C = {
   categoryText: '#9CA3AF',
 };
 
-
-
-
 export default function Feed() {
   const [stories, setStories] = useState<DBStory[]>([]);
   const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
@@ -64,28 +51,16 @@ export default function Feed() {
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
-
-
-
   const isLoadedRef = useRef(false); // 👈 CACHÉ CON useRef
-
-
-
 
   type TabsNav = BottomTabNavigationProp<any>;
   const navigation = useNavigation<TabsNav>();
   const flatListRef = useRef<FlatList<DBStory>>(null);
 
-
-
-
   async function loadFeed() {
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData.user?.id ?? null;
     setUserId(uid);
-
-
-
 
     if (uid) {
       const { data: me } = await supabase
@@ -97,9 +72,6 @@ export default function Feed() {
     } else {
       setUserAvatar(null);
     }
-
-
-
 
     const { data: rows, error } = await supabase
       .from('stories')
@@ -119,9 +91,6 @@ export default function Feed() {
       .order('created_at', { ascending: false })
       .limit(100);
 
-
-
-
     if (error) {
       console.warn(error.message);
       setStories([]);
@@ -130,13 +99,7 @@ export default function Feed() {
       return;
     }
 
-
-
-
     const rawStories = (rows ?? []) as DBStory[];
-
-
-
 
     const authorIds = Array.from(new Set(rawStories.map(s => s.author_id)));
     let avatarMap = new Map<string, string | null>();
@@ -150,9 +113,6 @@ export default function Feed() {
       });
     }
 
-
-
-
     const normalized: DBStory[] = rawStories.map(st => {
       const embedded = st.profiles?.[0]?.avatar_url ?? null;
       const fallback =
@@ -160,20 +120,11 @@ export default function Feed() {
         avatarMap.get(st.author_id) ??
         null;
 
-
-
-
       if (embedded) return st;
       return { ...st, profiles: [{ avatar_url: fallback, is_admin: st.profiles?.[0]?.is_admin ?? false, created_at: st.profiles?.[0]?.created_at ?? '' }] };
     });
 
-
-
-
     setStories(normalized);
-
-
-
 
     if (uid && normalized.length) {
       const ids = normalized.map(r => r.id);
@@ -182,9 +133,6 @@ export default function Feed() {
         .select('story_id')
         .eq('user_id', uid)
         .in('story_id', ids);
-
-
-
 
       if (!likeErr && likeRows) {
         setLikedSet(new Set(likeRows.map(r => r.story_id as string)));
@@ -195,14 +143,8 @@ export default function Feed() {
       setLikedSet(new Set());
     }
 
-
-
-
     isLoadedRef.current = true; // 👈 MARCAR COMO CARGADO
   }
-
-
-
 
   // 👇 CARGA SOLO SI NO ESTÁ EN CACHÉ
   useEffect(() => {
@@ -211,14 +153,8 @@ export default function Feed() {
     }
   }, []);
 
-
-
-
   // 👇 NO RECARGA AL CAMBIAR DE VISTA
   useFocusEffect(useCallback(() => {}, []));
-
-
-
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -226,9 +162,6 @@ export default function Feed() {
     await loadFeed();
     setRefreshing(false);
   }, []);
-
-
-
 
   // 👇 SCROLL AL TOP SIN RECARGAR
   useEffect(() => {
@@ -240,9 +173,6 @@ export default function Feed() {
     });
     return unsubscribe;
   }, [navigation]);
-
-
-
 
   return (
     <View style={s.screen}>
@@ -262,13 +192,7 @@ export default function Feed() {
               const uid = userData.user?.id;
               if (!uid) return;
 
-
-
-
               const isLiked = likedSet.has(id);
-
-
-
 
               try {
                 if (isLiked) {
@@ -309,9 +233,6 @@ export default function Feed() {
   );
 }
 
-
-
-
 function getCategoryIcon(category: string) {
   switch (category) {
     case 'Mitos':
@@ -325,9 +246,6 @@ function getCategoryIcon(category: string) {
   }
 }
 
-
-
-
 function StoryCard({
   item,
   liked,
@@ -338,13 +256,10 @@ function StoryCard({
   onToggleLike: (id: string) => void;
 }) {
   const router = useRouter();
-  const [isLiking, setIsLiking] = useState(false); // 👈 NUEVO: Estado para bloquear spam
-  const [showLikesModal, setShowLikesModal] = useState(false); // 👈 NUEVO: Modal de likes
-  const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]); // 👈 NUEVO: Lista de usuarios que dieron like
-  const [loadingLikes, setLoadingLikes] = useState(false); // 👈 NUEVO: Cargando likes
-
-
-
+  const [isLiking, setIsLiking] = useState(false); // 👈 Estado para bloquear spam
+  const [showLikesModal, setShowLikesModal] = useState(false); // 👈 Modal de likes
+  const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]); // 👈 Lista de usuarios que dieron like
+  const [loadingLikes, setLoadingLikes] = useState(false); // 👈 Cargando likes
 
   const hasCover = !!item.cover_url;
   const author = item.author_name?.trim() || 'Autor';
@@ -353,23 +268,14 @@ function StoryCard({
   const createdAt = item.profiles?.[0]?.created_at ?? '';
   const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
-
-
-
   const excerpt = useMemo(() => {
     const txt = item.body || '';
     if (txt.length <= 140) return txt;
     return txt.slice(0, 140) + '…';
   }, [item.body]);
 
-
-
-
   const handleLikePress = async () => {
     if (isLiking) return; // 👈 BLOQUEA SI YA ESTÁ PROCESANDO
-
-
-
 
     setIsLiking(true); // 👈 DESABILITA EL BOTÓN
     try {
@@ -379,14 +285,10 @@ function StoryCard({
     }
   };
 
-
-
-
-  // 👇 NUEVO: Función para cargar usuarios que dieron like
+  // 👇 Función para cargar usuarios que dieron like
   const handleShowLikes = async () => {
     setShowLikesModal(true);
     setLoadingLikes(true);
-
 
     try {
       const { data: likes, error } = await supabase
@@ -403,9 +305,7 @@ function StoryCard({
         `)
         .eq('story_id', item.id);
 
-
       if (error) throw error;
-
 
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
         id: like.profiles.id,
@@ -415,7 +315,6 @@ function StoryCard({
         created_at: like.profiles.created_at,
       }));
 
-
       setLikeUsers(users);
     } catch (e: any) {
       console.error('Error cargando likes:', e);
@@ -424,8 +323,8 @@ function StoryCard({
     }
   };
 
-
-
+  const likesCount = item.likes_count ?? 0;
+  const commentsCount = item.comments_count ?? 0;
 
   return (
     <>
@@ -439,15 +338,12 @@ function StoryCard({
                 <Ionicons name="person-outline" size={14} color={C.textSecondary} />
               </View>
             )}
-            {/* 👇 NUEVO: Nombre + insignias */}
+            {/* 👇 Nombre + insignias */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={s.author}>{author}</Text>
               {isAdmin && <MaterialIcons name="verified" size={16} color="#FFD700" />}
               {isEarlyUser && <MaterialIcons name="verified" size={16} color="#06B6D4" />}
             </View>
-
-
-
 
             <View style={s.categoryBadge}>
               {getCategoryIcon(item.category)}
@@ -455,9 +351,6 @@ function StoryCard({
             </View>
           </TouchableOpacity>
         </Link>
-
-
-
 
         <TouchableOpacity
           activeOpacity={0.85}
@@ -479,20 +372,12 @@ function StoryCard({
         >
           <Text style={s.cardTitle}>{item.title}</Text>
 
-
-
-
           {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
-
-
-
 
           <Text style={[s.excerpt, !hasCover && { marginTop: 6 }]}>{excerpt}</Text>
 
-
-
-
           <View style={s.footerRow}>
+            {/* Botón de like */}
             <TouchableOpacity 
               style={s.meta} 
               onPress={handleLikePress} 
@@ -501,32 +386,40 @@ function StoryCard({
             >
               <Ionicons 
                 name={liked ? 'heart' : 'heart-outline'} 
-                size={28} 
+                size={20} 
                 color={liked ? C.like : C.textSecondary} 
                 style={{ opacity: isLiking ? 0.5 : 1 }}
               />
             </TouchableOpacity>
-            {/* 👇 NUEVO: El número de likes más cercano pero con padding para clickear */}
+
+            {/* Contador de likes clickeable */}
             <TouchableOpacity 
-              style={[s.meta, { marginLeft: 0, paddingRight: 12 }]}
+              style={[s.metaText, { marginLeft: 4 }]}
               onPress={handleShowLikes}
               activeOpacity={0.8}
-              hitSlop={15}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={[s.metaTxt, liked && { color: C.like }]}>{item.likes_count ?? 0}</Text>
+              <Text style={[s.metaTxt, liked && { color: C.like }]}>
+                {likesCount} {likesCount === 1 ? 'Like' : 'Likes'}
+              </Text>
             </TouchableOpacity>
-            <View style={[s.meta, { marginLeft: -6 }]}>
-              <Ionicons name="chatbox-outline" size={28} color={C.textSecondary} />
-              <Text style={s.metaTxt}>{item.comments_count ?? 0}</Text>
+
+            {/* Icono de comentarios */}
+            <View style={[s.meta, { marginLeft: 16 }]}>
+              <Ionicons name="chatbox-outline" size={20} color={C.textSecondary} />
+            </View>
+
+            {/* Contador de comentarios */}
+            <View style={[s.metaText, { marginLeft: 4 }]}>
+              <Text style={s.metaTxt}>
+                {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
+              </Text>
             </View>
           </View>
-
-
         </TouchableOpacity>
       </View>
 
-
-      {/* 👇 NUEVO: Modal de likes */}
+      {/* 👇 Modal de likes */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
           <TouchableOpacity
@@ -543,7 +436,6 @@ function StoryCard({
                 <Ionicons name="close" size={24} color={C.textPrimary} />
               </TouchableOpacity>
             </View>
-
 
             {loadingLikes ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -595,9 +487,6 @@ function StoryCard({
   );
 }
 
-
-
-
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   card: {
@@ -636,11 +525,11 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.line,
     paddingTop: 12,
-    gap: 8,
   },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  metaTxt: { color: C.textSecondary, fontSize: 18, fontWeight: '700' },
-  // 👇 NUEVO: Estilos para el modal de likes
+  meta: { flexDirection: 'row', alignItems: 'center' },
+  metaText: { flexDirection: 'row', alignItems: 'center' },
+  metaTxt: { color: C.textSecondary, fontSize: 14, fontWeight: '600' },
+  // 👇 Estilos para el modal de likes
   likesOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

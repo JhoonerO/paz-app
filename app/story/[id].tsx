@@ -12,6 +12,7 @@ import {
   Keyboard,
   Platform,
   Dimensions,
+  FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Link } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
@@ -26,13 +27,19 @@ import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State }
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 
+
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+
 
 
 type Params = {
   id: string;
   source?: 'home' | 'profile' | 'notifications';
 };
+
+
 
 
 type Comment = {
@@ -45,6 +52,19 @@ type Comment = {
   is_admin: boolean;
   created_at: string;
 };
+
+
+
+
+type LikeUser = {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  is_admin: boolean;
+  created_at: string;
+};
+
+
 
 
 function getCategoryIcon(category: string) {
@@ -61,13 +81,19 @@ function getCategoryIcon(category: string) {
 }
 
 
+
+
 export default function StoryDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id, source } = useLocalSearchParams<Params>();
 
 
+
+
   const storyId = useMemo(() => id ?? String(Date.now()), [id]);
+
+
 
 
   const [likeCount, setLikeCount] = useState<number>(0);
@@ -78,6 +104,8 @@ export default function StoryDetail() {
   const [sendingComment, setSendingComment] = useState(false);
 
 
+
+
   const [storyTitle, setStoryTitle] = useState<string>('Cargando...');
   const [storyBody, setStoryBody] = useState<string>('Cargando historia...');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
@@ -85,13 +113,19 @@ export default function StoryDetail() {
   const [category, setCategory] = useState<string>('Urbana');
 
 
+
+
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
 
+
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedComment, setSelectedComment] = useState<Comment | null>(null);
+
+
 
 
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
@@ -99,7 +133,18 @@ export default function StoryDetail() {
   const [deletingStory, setDeletingStory] = useState(false);
 
 
+
+
   const [showImageZoom, setShowImageZoom] = useState(false);
+
+
+
+
+  const [showLikesModal, setShowLikesModal] = useState(false);
+  const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
+  const [loadingLikes, setLoadingLikes] = useState(false);
+
+
 
 
   const [showSheet, setShowSheet] = useState(false);
@@ -116,6 +161,8 @@ export default function StoryDetail() {
     onConfirm: () => setShowSheet(false),
     variant: 'info',
   });
+
+
 
 
   function showNotification(
@@ -136,7 +183,11 @@ export default function StoryDetail() {
   }
 
 
+
+
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+
 
 
   useEffect(() => {
@@ -148,12 +199,16 @@ export default function StoryDetail() {
     );
 
 
+
+
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
         setKeyboardHeight(0);
       }
     );
+
+
 
 
     return () => {
@@ -163,6 +218,8 @@ export default function StoryDetail() {
   }, []);
 
 
+
+
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -170,6 +227,8 @@ export default function StoryDetail() {
     };
     fetchUser();
   }, []);
+
+
 
 
   useEffect(() => {
@@ -188,11 +247,15 @@ export default function StoryDetail() {
   }, [userId]);
 
 
+
+
   useEffect(() => {
     if (!userId) {
       setLoading(false);
       return;
     }
+
+
 
 
     const loadStory = async () => {
@@ -214,6 +277,8 @@ export default function StoryDetail() {
           .maybeSingle();
 
 
+
+
         if (!error && data) {
           setStoryTitle(data.title || 'Historia');
           setStoryBody(data.body || 'Sin contenido.');
@@ -225,11 +290,15 @@ export default function StoryDetail() {
           setCategory(data.category || 'Urbana');
 
 
+
+
           const { count, error: likeError } = await supabase
             .from('story_likes')
             .select('*', { count: 'exact', head: true })
             .eq('story_id', storyId)
             .eq('user_id', userId);
+
+
 
 
           setLiked((count ?? 0) > 0);
@@ -246,8 +315,12 @@ export default function StoryDetail() {
     };
 
 
+
+
     loadStory();
   }, [storyId, userId]);
+
+
 
 
   const fetchComments = useCallback(async () => {
@@ -258,10 +331,14 @@ export default function StoryDetail() {
       .order('created_at', { ascending: false });
 
 
+
+
     if (!rows) {
       setCommentList([]);
       return;
     }
+
+
 
 
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
@@ -271,7 +348,11 @@ export default function StoryDetail() {
       .in('id', userIds);
 
 
+
+
     const map = new Map(profiles?.map(p => [p.id, p]) ?? []);
+
+
 
 
     const comments = rows.map((c: any) => {
@@ -291,13 +372,63 @@ export default function StoryDetail() {
     });
 
 
+
+
     setCommentList(comments);
   }, [storyId]);
+
+
 
 
   useEffect(() => {
     fetchComments();
   }, [storyId, fetchComments]);
+
+
+
+
+  const handleShowLikes = async () => {
+    setShowLikesModal(true);
+    setLoadingLikes(true);
+
+
+    try {
+      const { data: likes, error } = await supabase
+        .from('story_likes')
+        .select(`
+          user_id,
+          profiles!story_likes_user_id_fkey (
+            id,
+            display_name,
+            avatar_url,
+            is_admin,
+            created_at
+          )
+        `)
+        .eq('story_id', storyId);
+
+
+      if (error) throw error;
+
+
+      const users: LikeUser[] = (likes ?? []).map((like: any) => ({
+        id: like.profiles.id,
+        display_name: like.profiles.display_name,
+        avatar_url: like.profiles.avatar_url,
+        is_admin: like.profiles.is_admin,
+        created_at: like.profiles.created_at,
+      }));
+
+
+      setLikeUsers(users);
+    } catch (e: any) {
+      console.error('Error cargando likes:', e);
+    } finally {
+      setLoadingLikes(false);
+    }
+  };
+
+
 
 
   async function handleDeleteComment(commentId: string) {
@@ -326,6 +457,8 @@ export default function StoryDetail() {
   }
 
 
+
+
   function confirmDelete(comment: Comment) {
     const canDelete = userId === comment.userId || userId === storyAuthorId || isAdmin;
     
@@ -339,6 +472,8 @@ export default function StoryDetail() {
   }
 
 
+
+
   async function toggleLike() {
     if (!userId) {
       showNotification(
@@ -350,9 +485,13 @@ export default function StoryDetail() {
     }
 
 
+
+
     const newLiked = !liked;
     setLiked(newLiked);
     setLikeCount(prev => (newLiked ? prev + 1 : prev - 1));
+
+
 
 
     try {
@@ -370,9 +509,13 @@ export default function StoryDetail() {
   }
 
 
+
+
   async function addComment() {
     const text = commentInput.trim();
     if (!text || sendingComment) return;
+
+
 
 
     setSendingComment(true);
@@ -393,10 +536,14 @@ export default function StoryDetail() {
   }
 
 
+
+
   function handleBack() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   }
+
+
 
 
   async function handleDeleteStory() {
@@ -411,6 +558,8 @@ export default function StoryDetail() {
       );
       return;
     }
+
+
 
 
     setDeletingStory(true);
@@ -442,7 +591,11 @@ export default function StoryDetail() {
   }
 
 
+
+
   const displayCommentCount = commentList.length || initialCommentCount;
+
+
 
 
   if (loading) {
@@ -452,6 +605,8 @@ export default function StoryDetail() {
       </SafeAreaView>
     );
   }
+
+
 
 
   return (
@@ -477,6 +632,8 @@ export default function StoryDetail() {
         </View>
 
 
+
+
         <View style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
@@ -494,6 +651,8 @@ export default function StoryDetail() {
             )}
 
 
+
+
             <Text style={s.bodyText}>{storyBody}</Text>
             
             <View style={s.authorRow}>
@@ -505,20 +664,49 @@ export default function StoryDetail() {
             </View>
 
 
-            <View style={s.metrics}>
-              <TouchableOpacity style={s.iconRow} onPress={toggleLike} disabled={!userId}>
-                <Ionicons
-                  name={liked ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={liked ? '#ef4444' : '#F3F4F6'}
+
+
+            <View style={s.footerRow}>
+              {/* Icono Like */}
+              <TouchableOpacity 
+                style={s.meta} 
+                onPress={toggleLike} 
+                activeOpacity={0.8}
+                disabled={!userId}
+              >
+                <Ionicons 
+                  name={liked ? 'heart' : 'heart-outline'} 
+                  size={20} 
+                  color={liked ? '#ef4444' : '#F3F4F6'} 
                 />
-                <Text style={[s.metricTxt, liked && { color: '#ef4444' }]}>{likeCount}</Text>
               </TouchableOpacity>
-              <View style={s.iconRow}>
-                <FontAwesome5 name="comment-alt" size={20} color="#F3F4F6" />
-                <Text style={s.metricTxt}>{displayCommentCount}</Text>
+
+              {/* Contador Like Clickeable */}
+              <TouchableOpacity 
+                style={[s.metaText, { marginLeft: 4 }]}
+                onPress={handleShowLikes}
+                activeOpacity={0.8}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={[s.metaTxt, liked && { color: '#ef4444' }]}>
+                  {likeCount} {likeCount === 1 ? 'Like' : 'Likes'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Icono Comentarios */}
+              <View style={[s.meta, { marginLeft: 16 }]}>
+                <Ionicons name="chatbox-outline" size={20} color="#F3F4F6" />
+              </View>
+
+              {/* Contador Comentarios */}
+              <View style={[s.metaText, { marginLeft: 4 }]}>
+                <Text style={s.metaTxt}>
+                  {displayCommentCount} {displayCommentCount === 1 ? 'Comentario' : 'Comentarios'}
+                </Text>
               </View>
             </View>
+
+
 
 
             <View style={{ gap: 8, marginTop: 4 }}>
@@ -543,7 +731,6 @@ export default function StoryDetail() {
                             <Ionicons name="person-outline" size={14} color="#9CA3AF" />
                           </View>
                         )}
-                        {/* 👇 NUEVO: Nombre clickeable + insignias */}
                         <Link href={{ pathname: '/profile/[id]', params: { id: c.userId } }} asChild>
                           <TouchableOpacity>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -561,6 +748,8 @@ export default function StoryDetail() {
               })}
             </View>
           </ScrollView>
+
+
 
 
           <View 
@@ -595,11 +784,15 @@ export default function StoryDetail() {
         </View>
 
 
+
+
         <ImageZoomModal 
           visible={showImageZoom}
           imageUri={storyCover || ''}
           onClose={() => setShowImageZoom(false)}
         />
+
+
 
 
         <Modal visible={showDeleteModal} transparent animationType="fade">
@@ -611,6 +804,8 @@ export default function StoryDetail() {
               </Text>
 
 
+
+
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteModal(false)}
@@ -618,6 +813,8 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
+
+
 
 
                 <TouchableOpacity
@@ -630,6 +827,8 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
+
+
 
 
         <Modal visible={showDeleteStoryModal} transparent animationType="fade">
@@ -645,6 +844,8 @@ export default function StoryDetail() {
               </Text>
 
 
+
+
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteStoryModal(false)}
@@ -653,6 +854,8 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
+
+
 
 
                 <TouchableOpacity
@@ -670,6 +873,77 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
+
+
+
+
+        {/* Modal de likes */}
+        <Modal visible={showLikesModal} transparent animationType="fade">
+          <View style={s.likesOverlay}>
+            <TouchableOpacity
+              style={s.likeBackdrop}
+              onPress={() => setShowLikesModal(false)}
+            />
+            <View style={s.likesSheet}>
+              <View style={s.likesHeader}>
+                <Text style={s.likesTitle}>Les dio like</Text>
+                <TouchableOpacity
+                  onPress={() => setShowLikesModal(false)}
+                  hitSlop={10}
+                >
+                  <Ionicons name="close" size={24} color="#F3F4F6" />
+                </TouchableOpacity>
+              </View>
+
+
+              {loadingLikes ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color="#F3F4F6" />
+                </View>
+              ) : likeUsers.length === 0 ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#9CA3AF' }}>Sin likes aún</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={likeUsers}
+                  keyExtractor={(it) => it.id}
+                  contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                  ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                  renderItem={({ item: user }) => {
+                    const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
+                    return (
+                      <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
+                        <TouchableOpacity
+                          style={s.likeUserCard}
+                          onPress={() => {
+                            setShowLikesModal(false);
+                          }}
+                        >
+                          {user.avatar_url ? (
+                            <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
+                          ) : (
+                            <View style={[s.likeUserAvatar, { backgroundColor: '#0F1016', alignItems: 'center', justifyContent: 'center' }]}>
+                              <Ionicons name="person-outline" size={16} color="#9CA3AF" />
+                            </View>
+                          )}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                            <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
+                            {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
+                            {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
+                        </TouchableOpacity>
+                      </Link>
+                    );
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
+
+
 
 
         <Modal
@@ -696,8 +970,12 @@ export default function StoryDetail() {
               </View>
 
 
+
+
               <Text style={s.sheetTitle}>{sheet.title}</Text>
               <Text style={s.sheetMsg}>{sheet.message}</Text>
+
+
 
 
               <View style={s.sheetActions}>
@@ -717,6 +995,8 @@ export default function StoryDetail() {
 }
 
 
+
+
 function ImageZoomModal({ 
   visible, 
   imageUri, 
@@ -732,7 +1012,11 @@ function ImageZoomModal({
   const translateY = useSharedValue(0);
 
 
+
+
   const doubleTapRef = useCallback((ref: any) => ref, []);
+
+
 
 
   const onDoubleTap = (event: any) => {
@@ -750,9 +1034,13 @@ function ImageZoomModal({
   };
 
 
+
+
   const onPinch = (event: any) => {
     scale.value = baseScale.value * event.nativeEvent.scale;
   };
+
+
 
 
   const onPinchEnd = () => {
@@ -766,6 +1054,8 @@ function ImageZoomModal({
   };
 
 
+
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -773,6 +1063,8 @@ function ImageZoomModal({
       { scale: scale.value },
     ],
   }));
+
+
 
 
   return (
@@ -785,6 +1077,8 @@ function ImageZoomModal({
         >
           <Ionicons name="close-circle" size={40} color="#fff" />
         </TouchableOpacity>
+
+
 
 
         <TapGestureHandler
@@ -811,6 +1105,8 @@ function ImageZoomModal({
     </Modal>
   );
 }
+
+
 
 
 const s = StyleSheet.create({
@@ -849,17 +1145,17 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  metrics: {
+  footerRow: {
     marginTop: 8,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#1F1F27',
     flexDirection: 'row',
-    gap: 18,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#1F1F27',
+    paddingTop: 12,
   },
-  iconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metricTxt: { color: '#F3F4F6' },
+  meta: { flexDirection: 'row', alignItems: 'center' },
+  metaText: { flexDirection: 'row', alignItems: 'center' },
+  metaTxt: { color: '#F3F4F6', fontSize: 14, fontWeight: '600' },
   commentCard: {
     backgroundColor: '#010102ff',
     borderWidth: 1,
@@ -1009,5 +1305,59 @@ const s = StyleSheet.create({
   sheetBtnText: { 
     fontWeight: '600', 
     color: '#fff' 
+  },
+  likesOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  likeBackdrop: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+  likesSheet: {
+    backgroundColor: '#010102ff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: '#181818ff',
+    maxHeight: '75%',
+    zIndex: 10,
+  },
+  likesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#181818ff',
+  },
+  likesTitle: {
+    color: '#F3F4F6',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  likeUserCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#010102ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#181818ff',
+    padding: 12,
+    gap: 12,
+  },
+  likeUserAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2C2C33',
+  },
+  likeUserName: {
+    color: '#F3F4F6',
+    fontWeight: '600',
   },
 });

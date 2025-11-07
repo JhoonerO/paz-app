@@ -1,22 +1,30 @@
 // app/(auth)/register.tsx
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Modal,
   Image,
   Pressable,
+  ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import { supabase } from '../../lib/supabase';
 
+// 👇 DESCOMENTAR ESTO PARA PERMITIR CORREOS GMAIL NORMALES
+//const ALLOW_ANY_EMAIL = true;
+const ALLOW_ANY_EMAIL = false; // Solo UNIPAZ
 
 const C = {
   bg: '#000000ff',
@@ -30,20 +38,22 @@ const C = {
   like: '#ef4444',
 };
 
-
 export default function Register() {
   const router = useRouter();
-
+  const insets = useSafeAreaInsets();
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
-  const [confirmPass, setConfirmPass] = useState(''); // 👈 NUEVO
+  const [confirmPass, setConfirmPass] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [showConfirmPass, setShowConfirmPass] = useState(false); // 👈 NUEVO
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  
+  const [showTermsSheet, setShowTermsSheet] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showConfirmSheet, setShowConfirmSheet] = useState(false);
-
 
   const [sheet, setSheet] = useState<{
     title: string;
@@ -59,64 +69,20 @@ export default function Register() {
     variant: 'info',
   });
 
-
   function redirectUrl() {
     return Linking.createURL('/auth/callback');
   }
 
+  const scrollToInput = (yOffset: number) => {
+    scrollViewRef.current?.scrollTo({
+      y: yOffset,
+      animated: true,
+    });
+  };
 
-  async function onRegister() {
+  async function completeRegister() {
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
-
-
-    // validaciones básicas
-    if (!trimmedName || !trimmedEmail || !pass.trim() || !confirmPass.trim()) {
-      setSheet({
-        title: 'Campos faltantes',
-        message: 'Nombre, correo, contraseña y confirmación son obligatorios.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
-      return;
-    }
-
-
-    // 👇 NUEVO: Validar que las contraseñas coincidan
-    if (pass !== confirmPass) {
-      setSheet({
-        title: 'Contraseñas no coinciden',
-        message: 'Las contraseñas no son iguales. Intenta de nuevo.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
-      return;
-    }
-
-
-    // validación del dominio institucional (excepto correo de soporte)
-    const isAllowedEmail = 
-      trimmedEmail.endsWith('@unipaz.edu.co') || 
-      trimmedEmail === 'soporte.upaz@gmail.com';
-
-
-    if (!isAllowedEmail) {
-      setSheet({
-        title: 'Correo no permitido',
-        message:
-          'Esta app solo es funcional con correos institucionales de la UNIPAZ.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
-      return;
-    }
-
 
     setLoading(true);
     try {
@@ -130,7 +96,7 @@ export default function Register() {
       });
       if (error) throw error;
 
-
+      setShowTermsSheet(false);
       setSheet({
         title: 'Confirma tu correo',
         message:
@@ -157,130 +123,241 @@ export default function Register() {
     }
   }
 
+  async function onRegister() {
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedName || !trimmedEmail || !pass.trim() || !confirmPass.trim()) {
+      setSheet({
+        title: 'Campos faltantes',
+        message: 'Nombre, correo, contraseña y confirmación son obligatorios.',
+        confirmText: 'Cerrar',
+        onConfirm: () => setShowConfirmSheet(false),
+        variant: 'error',
+      });
+      setShowConfirmSheet(true);
+      return;
+    }
+
+    if (pass !== confirmPass) {
+      setSheet({
+        title: 'Contraseñas no coinciden',
+        message: 'Las contraseñas no son iguales. Intenta de nuevo.',
+        confirmText: 'Cerrar',
+        onConfirm: () => setShowConfirmSheet(false),
+        variant: 'error',
+      });
+      setShowConfirmSheet(true);
+      return;
+    }
+
+    // Validación de correo con variable
+    const isValidEmail = ALLOW_ANY_EMAIL 
+      ? trimmedEmail.endsWith('@gmail.com') || trimmedEmail.endsWith('@unipaz.edu.co')
+      : trimmedEmail.endsWith('@unipaz.edu.co');
+
+    if (!isValidEmail) {
+      const message = ALLOW_ANY_EMAIL
+        ? 'Solo se permiten correos de UNIPAZ (@unipaz.edu.co) o Gmail.'
+        : 'Solo se permiten correos institucionales de la UNIPAZ (@unipaz.edu.co).';
+      
+      setSheet({
+        title: 'Correo no permitido',
+        message,
+        confirmText: 'Cerrar',
+        onConfirm: () => setShowConfirmSheet(false),
+        variant: 'error',
+      });
+      setShowConfirmSheet(true);
+      return;
+    }
+
+    // Mostrar modal de términos
+    setAcceptedTerms(false);
+    setShowTermsSheet(true);
+  }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={{ flex: 1 }}>
       <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
-
-
-      <View style={s.wrap}>
-        {/* Logo */}
-        <View style={s.logoFrame}>
-          <Image
-            source={require('../../assets/icon.png')}
-            style={s.logoImg}
-            resizeMode="contain"
-          />
-        </View>
-
-
-        {/* Inputs */}
-        <View style={s.card}>
-          <TextInput
-            placeholder="Nombre de usuario"
-            placeholderTextColor={C.textSecondary}
-            style={s.input}
-            value={name}
-            onChangeText={setName}
-          />
-
-
-          <TextInput
-            placeholder="Correo"
-            placeholderTextColor={C.textSecondary}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[s.input, { marginTop: 12 }]}
-            value={email}
-            onChangeText={setEmail}
-          />
-
-
-          <View style={s.pwdWrap}>
-            <TextInput
-              placeholder="Contraseña"
-              placeholderTextColor={C.textSecondary}
-              secureTextEntry={!showPass}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[s.input, s.inputPwd]}
-              value={pass}
-              onChangeText={setPass}
-            />
-            <TouchableOpacity
-              onPress={() => setShowPass(v => !v)}
-              style={s.eyeBtn}
-              hitSlop={10}
-            >
-              <Ionicons
-                name={showPass ? 'eye-off-outline' : 'eye-outline'}
-                size={20}
-                color={C.textSecondary}
-              />
-            </TouchableOpacity>
-          </View>
-
-
-          {/* 👇 NUEVO: Campo de confirmar contraseña */}
-          <View style={[s.pwdWrap, { marginTop: 12 }]}>
-            <TextInput
-              placeholder="Confirmar contraseña"
-              placeholderTextColor={C.textSecondary}
-              secureTextEntry={!showConfirmPass}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[s.input, s.inputPwd]}
-              value={confirmPass}
-              onChangeText={setConfirmPass}
-              returnKeyType="go"
-              onSubmitEditing={onRegister}
-            />
-            <TouchableOpacity
-              onPress={() => setShowConfirmPass(v => !v)}
-              style={s.eyeBtn}
-              hitSlop={10}
-            >
-              <Ionicons
-                name={showConfirmPass ? 'eye-off-outline' : 'eye-outline'}
-                size={20}
-                color={C.textSecondary}
-              />
-            </TouchableOpacity>
-          </View>
-
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={[s.btn, loading && { opacity: 0.6 }]}
-            onPress={onRegister}
-            disabled={loading}
+      
+      <View style={s.overlayFixed} pointerEvents="none" />
+      
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView
+            ref={scrollViewRef}
+            contentContainerStyle={s.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
           >
-            <Text style={s.btnText}>{loading ? 'Creando…' : 'Crear cuenta'}</Text>
-          </TouchableOpacity>
+            <View style={[s.wrap, { paddingBottom: insets.bottom + 24 }]}>
+              <View style={s.logoFrame}>
+                <Image
+                  source={require('../../assets/icon.png')}
+                  style={s.logoImg}
+                  resizeMode="contain"
+                />
+              </View>
 
+              <View style={s.card}>
+                <TextInput
+                  placeholder="Nombre de usuario"
+                  placeholderTextColor={C.textSecondary}
+                  style={s.input}
+                  value={name}
+                  onChangeText={setName}
+                  onFocus={() => scrollToInput(0)}
+                />
 
-          <Text style={s.footerText}>
-            ¿Ya tienes cuenta?{' '}
-            <Link href="/(auth)/login" style={s.link}>
-              Inicia sesión
-            </Link>
-          </Text>
+                <TextInput
+                  placeholder="Correo"
+                  placeholderTextColor={C.textSecondary}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[s.input, { marginTop: 12 }]}
+                  value={email}
+                  onChangeText={setEmail}
+                  onFocus={() => scrollToInput(80)}
+                />
+
+                <View style={s.pwdWrap}>
+                  <TextInput
+                    placeholder="Contraseña"
+                    placeholderTextColor={C.textSecondary}
+                    secureTextEntry={!showPass}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[s.input, s.inputPwd]}
+                    value={pass}
+                    onChangeText={setPass}
+                    onFocus={() => scrollToInput(160)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPass(v => !v)}
+                    style={s.eyeBtn}
+                    hitSlop={10}
+                  >
+                    <Ionicons
+                      name={showPass ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color={C.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={[s.pwdWrap, { marginTop: 12 }]}>
+                  <TextInput
+                    placeholder="Confirmar contraseña"
+                    placeholderTextColor={C.textSecondary}
+                    secureTextEntry={!showConfirmPass}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[s.input, s.inputPwd]}
+                    value={confirmPass}
+                    onChangeText={setConfirmPass}
+                    returnKeyType="go"
+                    onSubmitEditing={onRegister}
+                    onFocus={() => scrollToInput(240)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPass(v => !v)}
+                    style={s.eyeBtn}
+                    hitSlop={10}
+                  >
+                    <Ionicons
+                      name={showConfirmPass ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color={C.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={[s.btn, loading && { opacity: 0.6 }]}
+                  onPress={onRegister}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={C.textPrimary} />
+                  ) : (
+                    <Text style={s.btnText}>Crear cuenta</Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={s.footer}>
+                  <Text style={s.footerText}>
+                    ¿Ya tienes cuenta?{' '}
+                    <Link href="/(auth)/login" asChild>
+                      <TouchableOpacity>
+                        <Text style={s.link}>Inicia sesión</Text>
+                      </TouchableOpacity>
+                    </Link>
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+
+      {/* MODAL TÉRMINOS Y CONDICIONES */}
+      <Modal
+        visible={showTermsSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTermsSheet(false)}
+      >
+        <View style={[s.termsOverlay, { paddingBottom: insets.bottom }]}>
+          <Pressable style={s.termsBackdrop} onPress={() => setShowTermsSheet(false)} />
+          <View style={s.termsSheet}>
+            <Text style={s.termsTitle}>Términos y Condiciones</Text>
+            <Text style={s.termsText}>
+              Al crear una cuenta, aceptas nuestros términos y condiciones. Tu contenido debe ser respetable y acorde con los valores institucionales de la UNIPAZ.
+            </Text>
+
+            <View style={s.termsCheckbox}>
+              <TouchableOpacity
+                style={[s.checkBox, acceptedTerms && s.checkBoxChecked]}
+                onPress={() => setAcceptedTerms(!acceptedTerms)}
+              >
+                {acceptedTerms && (
+                  <Ionicons name="checkmark" size={16} color={C.textPrimary} />
+                )}
+              </TouchableOpacity>
+              <Text style={s.checkText}>Acepto los términos y condiciones</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[s.termsBtn, !acceptedTerms && { opacity: 0.5 }]}
+              onPress={completeRegister}
+              disabled={!acceptedTerms || loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={C.textPrimary} />
+              ) : (
+                <Text style={s.termsBtnText}>Crear cuenta</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </Modal>
 
-
-      {/* Mini notificación */}
+      {/* MODAL NOTIFICACIÓN */}
       <Modal
         visible={showConfirmSheet}
         transparent
         animationType="fade"
         onRequestClose={() => setShowConfirmSheet(false)}
       >
-        <View style={s.overlay}>
+        <View style={[s.overlay, { paddingBottom: insets.bottom }]}>
           <Pressable style={s.backdrop} onPress={() => setShowConfirmSheet(false)} />
           <View style={s.sheet}>
             <View
@@ -298,10 +375,8 @@ export default function Register() {
               />
             </View>
 
-
             <Text style={s.sheetTitle}>{sheet.title}</Text>
             <Text style={s.sheetMsg}>{sheet.message}</Text>
-
 
             <View style={s.sheetActions}>
               <TouchableOpacity
@@ -314,22 +389,32 @@ export default function Register() {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
-
 const s = StyleSheet.create({
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+
   wrap: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     padding: 20,
     justifyContent: 'center',
   },
+
+  overlayFixed: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+
   bgImg: {
     ...StyleSheet.absoluteFillObject,
     opacity: 1,
   },
+
   logoFrame: {
     alignSelf: 'center',
     marginBottom: 1,
@@ -337,8 +422,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   logoImg: { width: 250, height: 250 },
-  card: { gap: 0 },
 
+  card: { gap: 0 },
 
   input: {
     backgroundColor: '#0f0f0fff',
@@ -374,6 +459,7 @@ const s = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
   },
+
   btn: {
     marginTop: 50,
     height: 48,
@@ -387,10 +473,85 @@ const s = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   btnText: { color: C.textPrimary, fontWeight: '600' },
-  footerText: { color: C.textSecondary, marginTop: 16, textAlign: 'center' },
-  link: { color: C.textPrimary, textDecorationLine: 'underline' },
 
+  footer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  footerText: { color: C.textSecondary, textAlign: 'center', fontSize: 14 },
+  link: { color: C.textPrimary, textDecorationLine: 'underline', fontSize: 14 },
 
+  // TÉRMINOS
+  termsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  termsBackdrop: { flex: 1 },
+  termsSheet: {
+    width: '100%',
+    backgroundColor: C.card,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    borderTopWidth: 1,
+    borderColor: C.cardBorder,
+  },
+  termsTitle: {
+    color: C.textPrimary,
+    fontWeight: '700',
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  termsText: {
+    color: C.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  termsCheckbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  checkBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: C.avatarBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  checkBoxChecked: {
+    backgroundColor: C.avatarBg,
+    borderColor: '#93C5FD',
+  },
+  checkText: {
+    color: C.textPrimary,
+    fontSize: 14,
+    flex: 1,
+  },
+  termsBtn: {
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.avatarBg,
+    borderWidth: 1,
+    borderColor: C.avatarBorder,
+  },
+  termsBtnText: {
+    fontWeight: '600',
+    color: C.textPrimary,
+    fontSize: 16,
+  },
+
+  // NOTIFICACIÓN
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',

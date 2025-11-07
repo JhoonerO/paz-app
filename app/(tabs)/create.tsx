@@ -2,13 +2,14 @@
 import { useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  Image, Alert, KeyboardAvoidingView, Platform, Modal,
+  Image, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
+
 
 
 
@@ -23,6 +24,7 @@ type InsertStory = {
 
 
 
+
 function getExtAndType(uri: string) {
   const ext = (uri.split('.').pop() || '').toLowerCase();
   if (ext === 'png') return { ext: 'png', type: 'image/png' };
@@ -31,6 +33,7 @@ function getExtAndType(uri: string) {
   if (ext === 'heic') return { ext: 'heic', type: 'image/heic' };
   return { ext: 'jpg', type: 'image/jpeg' };
 }
+
 
 
 
@@ -43,9 +46,11 @@ async function uriToArrayBuffer(uri: string) {
 
 
 
+
 export default function CreateScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
 
 
 
@@ -57,6 +62,7 @@ export default function CreateScreen() {
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pickingImage, setPickingImage] = useState(false);
+
 
 
 
@@ -80,9 +86,11 @@ export default function CreateScreen() {
 
 
 
+
   async function pickImage() {
     if (pickingImage) return;
     setPickingImage(true);
+
 
 
 
@@ -96,10 +104,12 @@ export default function CreateScreen() {
 
 
 
+
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.9,
       });
+
 
 
 
@@ -115,6 +125,7 @@ export default function CreateScreen() {
 
 
 
+
   async function submit() {
     if (!title.trim() || !body.trim()) {
       Alert.alert('Faltan datos', 'Título e historia son obligatorios.');
@@ -123,11 +134,13 @@ export default function CreateScreen() {
 
 
 
+
     setSubmitting(true);
     try {
       const { data: userData, error: uErr } = await supabase.auth.getUser();
       if (uErr || !userData.user) throw new Error('Debes iniciar sesión para publicar.');
       const userId = userData.user.id;
+
 
 
 
@@ -146,6 +159,7 @@ export default function CreateScreen() {
 
 
 
+
       const payload: InsertStory = {
         title: title.trim(),
         body: body.trim(),
@@ -157,8 +171,10 @@ export default function CreateScreen() {
 
 
 
+
       const { error: insErr } = await supabase.from('stories').insert(payload);
       if (insErr) throw insErr;
+
 
 
 
@@ -178,90 +194,110 @@ export default function CreateScreen() {
 
 
 
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000ff' }} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView style={{ flex: 10 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={s.container}>
-          {/* PORTADA */}
-          <TouchableOpacity 
-            style={[s.imagePicker, pickingImage && { opacity: 0.6 }]} 
-            onPress={pickImage} 
-            activeOpacity={0.8}
-            disabled={pickingImage}
-          >
-            {coverUri ? (
-              <Image source={{ uri: coverUri }} style={s.cover} />
-            ) : (
-              <View style={s.coverPlaceholder}>
-                <Ionicons name="image-outline" size={22} color="#9CA3AF" />
-                <Text style={{ color: '#9CA3AF', marginTop: 6 }}>
-                  {pickingImage ? 'Abriendo galería...' : 'Añadir portada (opcional)'}
-                </Text>
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <ScrollView 
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+          scrollEnabled={true}
+          nestedScrollEnabled={true}
+        >
+          <View style={s.container}>
+            {/* PORTADA */}
+            <TouchableOpacity 
+              style={[s.imagePicker, pickingImage && { opacity: 0.6 }]} 
+              onPress={pickImage} 
+              activeOpacity={0.8}
+              disabled={pickingImage}
+            >
+              {coverUri ? (
+                <Image source={{ uri: coverUri }} style={s.cover} />
+              ) : (
+                <View style={s.coverPlaceholder}>
+                  <Ionicons name="image-outline" size={22} color="#9CA3AF" />
+                  <Text style={{ color: '#9CA3AF', marginTop: 6 }}>
+                    {pickingImage ? 'Abriendo galería...' : 'Añadir portada (opcional)'}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+
+
+
+            {/* AUTOR */}
+            <TextInput
+              placeholder="Autor (opcional)"
+              placeholderTextColor="#8A8A93"
+              style={s.input}
+              value={author}
+              onChangeText={setAuthor}
+            />
+
+
+
+
+            {/* TÍTULO */}
+            <TextInput
+              placeholder="Título"
+              placeholderTextColor="#8A8A93"
+              style={s.input}
+              value={title}
+              onChangeText={setTitle}
+            />
+
+
+
+
+            {/* 👇 SELECTOR DESPLEGABLE DE CATEGORÍA */}
+            <TouchableOpacity 
+              style={s.input} 
+              onPress={() => setShowCategoryPicker(true)}
+              activeOpacity={0.7}
+            >
+              <View style={s.pickerContent}>
+                <Text style={s.pickerText}>{category}</Text>
+                <Ionicons name="chevron-down" size={20} color="#f7f7f7ff" />
               </View>
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
 
 
 
-          {/* AUTOR */}
-          <TextInput
-            placeholder="Autor (opcional)"
-            placeholderTextColor="#8A8A93"
-            style={s.input}
-            value={author}
-            onChangeText={setAuthor}
-          />
+
+            {/* HISTORIA */}
+            <TextInput
+              placeholder="Cuenta tu historia…"
+              placeholderTextColor="#8A8A93"
+              style={[s.input, s.textarea]}
+              value={body}
+              onChangeText={setBody}
+              multiline
+              scrollEnabled={true}
+            />
 
 
 
-          {/* TÍTULO */}
-          <TextInput
-            placeholder="Título"
-            placeholderTextColor="#8A8A93"
-            style={s.input}
-            value={title}
-            onChangeText={setTitle}
-          />
 
+            {/* BOTÓN PUBLICAR */}
+            <TouchableOpacity
+              style={[s.btn, submitting && { opacity: 0.6 }]}
+              activeOpacity={0.85}
+              onPress={submit}
+              disabled={submitting}
+            >
+              <Ionicons name="send-outline" size={18} color="#F3F4F6" />
+              <Text style={s.btnText}>{submitting ? 'Publicando…' : 'Publicar'}</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
 
-
-          {/* 👇 SELECTOR DESPLEGABLE DE CATEGORÍA */}
-          <TouchableOpacity 
-            style={s.input} 
-            onPress={() => setShowCategoryPicker(true)}
-            activeOpacity={0.7}
-          >
-            <View style={s.pickerContent}>
-              <Text style={s.pickerText}>{category}</Text>
-              <Ionicons name="chevron-down" size={20} color="#f7f7f7ff" />
-            </View>
-          </TouchableOpacity>
-
-
-
-          {/* HISTORIA */}
-          <TextInput
-            placeholder="Cuenta tu historia…"
-            placeholderTextColor="#8A8A93"
-            style={[s.input, s.textarea]}
-            value={body}
-            onChangeText={setBody}
-            multiline
-          />
-
-
-
-          {/* BOTÓN PUBLICAR */}
-          <TouchableOpacity
-            style={[s.btn, submitting && { opacity: 0.6 }]}
-            activeOpacity={0.85}
-            onPress={submit}
-            disabled={submitting}
-          >
-            <Ionicons name="send-outline" size={18} color="#F3F4F6" />
-            <Text style={s.btnText}>{submitting ? 'Publicando…' : 'Publicar'}</Text>
-          </TouchableOpacity>
-        </View>
 
 
 
@@ -318,8 +354,10 @@ export default function CreateScreen() {
 
 
 
+
 const s = StyleSheet.create({
-  container: { padding: 16, gap: 12 },
+  container: { padding: 16, gap: 12, paddingBottom: 40 },
+
 
 
 
@@ -332,6 +370,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
 
 
 
@@ -349,6 +388,7 @@ const s = StyleSheet.create({
 
 
 
+
   // 👇 ESTILOS DEL SELECTOR
   pickerContent: {
     flexDirection: 'row',
@@ -359,6 +399,7 @@ const s = StyleSheet.create({
     color: '#8A8A93',
     fontSize: 16,
   },
+
 
 
 
@@ -412,6 +453,7 @@ const s = StyleSheet.create({
   checkmark: {
     marginLeft: 8,
   },
+
 
 
 
