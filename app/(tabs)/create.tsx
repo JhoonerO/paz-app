@@ -1,17 +1,30 @@
 // app/(tabs)/create.tsx
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  View, Text, StyleSheet, TextInput, TouchableOpacity,
-  Image, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 
-
-
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 
 type InsertStory = {
   title: string;
@@ -22,9 +35,6 @@ type InsertStory = {
   category: string;
 };
 
-
-
-
 function getExtAndType(uri: string) {
   const ext = (uri.split('.').pop() || '').toLowerCase();
   if (ext === 'png') return { ext: 'png', type: 'image/png' };
@@ -34,9 +44,6 @@ function getExtAndType(uri: string) {
   return { ext: 'jpg', type: 'image/jpeg' };
 }
 
-
-
-
 async function uriToArrayBuffer(uri: string) {
   const res: any = await fetch(uri);
   // @ts-ignore
@@ -44,15 +51,28 @@ async function uriToArrayBuffer(uri: string) {
   return ab as ArrayBuffer;
 }
 
-
-
-
 export default function CreateScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  // ✅ Animación de entrada al tab
+  const enter = useSharedValue(1);
+  const enterStyle = useAnimatedStyle(() => {
+    return {
+      opacity: enter.value,
+      transform: [{ translateX: (1 - enter.value) * 14 }],
+    };
+  });
 
-
+  useFocusEffect(
+    useCallback(() => {
+      enter.value = 0;
+      enter.value = withTiming(1, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      });
+    }, [])
+  );
 
   const [author, setAuthor] = useState('');
   const [title, setTitle] = useState('');
@@ -63,55 +83,39 @@ export default function CreateScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [pickingImage, setPickingImage] = useState(false);
 
-
-
-
   const categories = [
     {
       value: 'Urbana',
       label: 'Urbana',
-      description: 'Sucesos paranormales del barrio, historias que pasan en tu ciudad'
+      description: 'Sucesos paranormales del barrio, historias que pasan en tu ciudad',
     },
     {
       value: 'Leyenda',
       label: 'Leyenda',
-      description: 'Relatos tradicionales que nuestros abuelos cuentan de generación en generación'
+      description: 'Relatos tradicionales que nuestros abuelos cuentan de generación en generación',
     },
     {
       value: 'Mitos',
       label: 'Mitos',
-      description: 'Creencias populares colombianas y seres sobrenaturales de nuestra cultura'
-    }
+      description: 'Creencias populares colombianas y seres sobrenaturales de nuestra cultura',
+    },
   ];
-
-
-
 
   async function pickImage() {
     if (pickingImage) return;
     setPickingImage(true);
 
-
-
-
     try {
       const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!granted) {
         Alert.alert('Permiso requerido', 'Habilita el acceso a tu galería.');
-        setPickingImage(false);
         return;
       }
-
-
-
 
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.9,
       });
-
-
-
 
       if (!res.canceled) {
         setCoverUri(res.assets[0].uri);
@@ -123,17 +127,11 @@ export default function CreateScreen() {
     }
   }
 
-
-
-
   async function submit() {
     if (!title.trim() || !body.trim()) {
       Alert.alert('Faltan datos', 'Título e historia son obligatorios.');
       return;
     }
-
-
-
 
     setSubmitting(true);
     try {
@@ -141,24 +139,21 @@ export default function CreateScreen() {
       if (uErr || !userData.user) throw new Error('Debes iniciar sesión para publicar.');
       const userId = userData.user.id;
 
-
-
-
       let cover_url: string | null = null;
       if (coverUri) {
         const { ext, type } = getExtAndType(coverUri);
         const filePath = `${userId}/${Date.now()}.${ext}`;
         const ab = await uriToArrayBuffer(coverUri);
-        const { error: upErr } = await supabase
-          .storage.from('covers')
-          .upload(filePath, ab, { contentType: type, upsert: true });
+
+        const { error: upErr } = await supabase.storage.from('covers').upload(filePath, ab, {
+          contentType: type,
+          upsert: true,
+        });
         if (upErr) throw upErr;
+
         const { data: pub } = supabase.storage.from('covers').getPublicUrl(filePath);
         cover_url = pub?.publicUrl ?? null;
       }
-
-
-
 
       const payload: InsertStory = {
         title: title.trim(),
@@ -169,20 +164,16 @@ export default function CreateScreen() {
         category,
       };
 
-
-
-
       const { error: insErr } = await supabase.from('stories').insert(payload);
       if (insErr) throw insErr;
 
-
-
-
-      setAuthor(''); 
-      setTitle(''); 
-      setBody(''); 
+      setAuthor('');
+      setTitle('');
+      setBody('');
       setCoverUri(null);
       setCategory('Urbana');
+
+      // Mantengo tu comportamiento (volver al root de tabs)
       router.replace('/(tabs)');
     } catch (e: any) {
       console.error(e);
@@ -192,28 +183,25 @@ export default function CreateScreen() {
     }
   }
 
-
-
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#000000ff' }} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <ScrollView 
+        <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
-          scrollEnabled={true}
-          nestedScrollEnabled={true}
+          scrollEnabled
+          nestedScrollEnabled
         >
-          <View style={s.container}>
+          <Animated.View style={[s.container, { paddingBottom: insets.bottom + 40 }, enterStyle]}>
             {/* PORTADA */}
-            <TouchableOpacity 
-              style={[s.imagePicker, pickingImage && { opacity: 0.6 }]} 
-              onPress={pickImage} 
+            <TouchableOpacity
+              style={[s.imagePicker, pickingImage && { opacity: 0.6 }]}
+              onPress={pickImage}
               activeOpacity={0.8}
               disabled={pickingImage}
             >
@@ -229,9 +217,6 @@ export default function CreateScreen() {
               )}
             </TouchableOpacity>
 
-
-
-
             {/* AUTOR */}
             <TextInput
               placeholder="Autor (opcional)"
@@ -240,9 +225,6 @@ export default function CreateScreen() {
               value={author}
               onChangeText={setAuthor}
             />
-
-
-
 
             {/* TÍTULO */}
             <TextInput
@@ -253,12 +235,9 @@ export default function CreateScreen() {
               onChangeText={setTitle}
             />
 
-
-
-
-            {/* 👇 SELECTOR DESPLEGABLE DE CATEGORÍA */}
-            <TouchableOpacity 
-              style={s.input} 
+            {/* SELECTOR CATEGORÍA */}
+            <TouchableOpacity
+              style={s.input}
               onPress={() => setShowCategoryPicker(true)}
               activeOpacity={0.7}
             >
@@ -268,9 +247,6 @@ export default function CreateScreen() {
               </View>
             </TouchableOpacity>
 
-
-
-
             {/* HISTORIA */}
             <TextInput
               placeholder="Cuenta tu historia…"
@@ -279,11 +255,8 @@ export default function CreateScreen() {
               value={body}
               onChangeText={setBody}
               multiline
-              scrollEnabled={true}
+              scrollEnabled
             />
-
-
-
 
             {/* BOTÓN PUBLICAR */}
             <TouchableOpacity
@@ -295,21 +268,18 @@ export default function CreateScreen() {
               <Ionicons name="send-outline" size={18} color="#F3F4F6" />
               <Text style={s.btnText}>{submitting ? 'Publicando…' : 'Publicar'}</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </ScrollView>
 
-
-
-
-        {/* 👇 MODAL DE CATEGORÍAS CON DESCRIPCIONES */}
+        {/* MODAL CATEGORÍAS */}
         <Modal
           visible={showCategoryPicker}
           transparent
           animationType="fade"
           onRequestClose={() => setShowCategoryPicker(false)}
         >
-          <TouchableOpacity 
-            style={s.modalOverlay} 
+          <TouchableOpacity
+            style={s.modalOverlay}
             activeOpacity={1}
             onPress={() => setShowCategoryPicker(false)}
           >
@@ -320,7 +290,7 @@ export default function CreateScreen() {
                   style={[
                     s.modalOption,
                     category === cat.value && s.modalOptionActive,
-                    categories[categories.length - 1].value === cat.value && { borderBottomWidth: 0 }
+                    categories[categories.length - 1].value === cat.value && { borderBottomWidth: 0 },
                   ]}
                   onPress={() => {
                     setCategory(cat.value);
@@ -329,15 +299,15 @@ export default function CreateScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={s.modalOptionContent}>
-                    <Text style={[
-                      s.modalOptionText,
-                      category === cat.value && s.modalOptionTextActive
-                    ]}>
+                    <Text
+                      style={[
+                        s.modalOptionText,
+                        category === cat.value && s.modalOptionTextActive,
+                      ]}
+                    >
                       {cat.label}
                     </Text>
-                    <Text style={s.modalOptionDescription}>
-                      {cat.description}
-                    </Text>
+                    <Text style={s.modalOptionDescription}>{cat.description}</Text>
                   </View>
                   {category === cat.value && (
                     <Ionicons name="checkmark" size={20} color="#ffffffff" style={s.checkmark} />
@@ -352,14 +322,8 @@ export default function CreateScreen() {
   );
 }
 
-
-
-
 const s = StyleSheet.create({
-  container: { padding: 16, gap: 12, paddingBottom: 40 },
-
-
-
+  container: { padding: 16, gap: 12 },
 
   imagePicker: { borderWidth: 1, borderColor: '#181818ff', borderRadius: 12, overflow: 'hidden' },
   cover: { width: '100%', aspectRatio: 16 / 9 },
@@ -370,9 +334,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-
-
 
   input: {
     backgroundColor: 'transparent',
@@ -386,10 +347,6 @@ const s = StyleSheet.create({
   },
   textarea: { height: 140, paddingTop: 12, textAlignVertical: 'top' },
 
-
-
-
-  // 👇 ESTILOS DEL SELECTOR
   pickerContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -400,10 +357,6 @@ const s = StyleSheet.create({
     fontSize: 16,
   },
 
-
-
-
-  // 👇 ESTILOS DEL MODAL CON DESCRIPCIONES
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -450,12 +403,7 @@ const s = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  checkmark: {
-    marginLeft: 8,
-  },
-
-
-
+  checkmark: { marginLeft: 8 },
 
   btn: {
     marginTop: 6,

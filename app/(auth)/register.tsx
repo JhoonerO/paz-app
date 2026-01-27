@@ -104,7 +104,7 @@ export default function Register() {
         confirmText: 'Ir a iniciar sesión',
         onConfirm: () => {
           setShowConfirmSheet(false);
-          router.replace('/(auth)/login');
+          router.push('/(auth)/login');
         },
         variant: 'info',
       });
@@ -293,14 +293,12 @@ export default function Register() {
                 </TouchableOpacity>
 
                 <View style={s.footer}>
-                  <Text style={s.footerText}>
-                    ¿Ya tienes cuenta?{' '}
-                    <Link href="/(auth)/login" asChild>
-                      <TouchableOpacity>
-                        <Text style={s.link}>Inicia sesión</Text>
-                      </TouchableOpacity>
-                    </Link>
-                  </Text>
+                  <View style={s.footer}>
+                    <Text style={s.footerText}>¿Ya tienes cuenta? </Text>
+                    <TouchableOpacity onPress={() => router.back()}>
+                      <Text style={s.link}>Inicia sesión</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             </View>

@@ -7,11 +7,13 @@ import {
   Image,
   FlatList,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
+import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
 type NotificationItem = {
   id: string;
@@ -28,11 +30,19 @@ type NotificationItem = {
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const HEADER_BAR = 56;
+
+  const [fontsLoaded] = useFonts({
+    Risque_400Regular,
+  });
 
   // Carga inicial de notificaciones desde Supabase
   const loadNotifications = async (userId: string) => {
+    setLoading(true);
+    
     const { data, error } = await supabase
       .from('notifications')
       .select(`
@@ -47,7 +57,10 @@ export default function NotificationsScreen() {
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) return;
+    if (error) {
+      setLoading(false);
+      return;
+    }
 
     const mapped = data.map((n: any) => {
       const rawCover = (n.stories?.cover_url ?? '').trim();
@@ -71,13 +84,17 @@ export default function NotificationsScreen() {
     });
 
     setNotifications(mapped);
+    setLoading(false);
   };
 
   useEffect(() => {
     const loadAndListen = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       const uid = user?.id;
-      if (!uid) return;
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
 
       await loadNotifications(uid);
 
@@ -113,27 +130,48 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={['bottom']}>
       <View
         style={[s.header, { paddingTop: insets.top, height: insets.top + HEADER_BAR }]}
       >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={10}
+          style={s.backButton}
+        >
+          <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
+        </TouchableOpacity>
+
         <Text style={s.headerTitle}>Notificaciones</Text>
-        <View style={{ width: 32 }} />
+        <View style={{ width: 30 }} />
       </View>
 
-      <FlatList
-        data={notifications}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 12, paddingBottom: 16 }}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        renderItem={({ item }) => (
-          <NotificationRow item={item} onRead={markAsRead} />
-        )}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <Text style={s.empty}>No tienes notificaciones.</Text>
-        }
-      />
+      {loading ? (
+        <View style={s.loadingContainer}>
+          <ActivityIndicator size="large" color="#F3F4F6" />
+          <Text style={s.loadingText}>Comprobando notificaciones...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ padding: 12, paddingBottom: 16 }}
+          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+          renderItem={({ item }) => (
+            <NotificationRow item={item} onRead={markAsRead} />
+          )}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={s.emptyContainer}>
+              <Ionicons name="notifications-off-outline" size={64} color="#3F3F46" />
+              <Text style={s.emptyTitle}>Sin notificaciones</Text>
+              <Text style={s.emptySubtitle}>
+                Aún no tienes notificaciones pendientes
+              </Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -198,7 +236,7 @@ function NotificationRow({
             </View>
 
             <Text style={s.storyTitle} numberOfLines={1}>
-              “{item.storyTitle}”
+              "{item.storyTitle}"
             </Text>
 
             <Text style={s.time}>{ago}</Text>
@@ -233,23 +271,58 @@ const s = StyleSheet.create({
   header: {
     backgroundColor: '#000',
     borderBottomWidth: 1,
+    borderBottomColor: '#181818ff',
     paddingHorizontal: 12,
     justifyContent: 'center',
     alignItems: 'center',
+    flexDirection: 'row',
   },
+  backButton: {
+    position: 'absolute',
+    left: 6,
+    top: 30, // 👈 CAMBIO 1
+    bottom: 0, // 👈 CAMBIO 2
+    justifyContent: 'center', // 👈 CAMBIO 3
+    paddingHorizontal: 4,
+    zIndex: 10,
+  },
+
   headerTitle: {
     fontFamily: 'Risque_400Regular',
     fontSize: 22,
     color: '#F3F4F6',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
-  empty: {
-    fontFamily: 'Risque_400Regular',
-    fontSize: 22,
+  
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    color: '#9CA3AF',
+    fontSize: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+    gap: 12,
+  },
+  emptyTitle: {
     color: '#F3F4F6',
-    letterSpacing: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    color: '#9CA3AF',
+    fontSize: 14,
     textAlign: 'center',
   },
+  
   row: {
     backgroundColor: '#010102ff',
     borderWidth: 1,

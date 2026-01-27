@@ -1,5 +1,4 @@
-// app/(auth)/login.tsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,11 +11,13 @@ import {
   Modal,
   Image,
   Pressable,
+  Keyboard,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { supabase } from '../../lib/supabase';
 
 const KEY_SESSION = 'session_active';
@@ -41,6 +42,27 @@ export default function Login() {
   const [pass, setPass] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Workaround Android: a veces el KAV se queda "encogido"
+  const [androidBehavior, setAndroidBehavior] = useState<
+    'height' | undefined
+  >(Platform.OS === 'android' ? 'height' : undefined);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      setAndroidBehavior('height');
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setAndroidBehavior(undefined);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -67,7 +89,8 @@ export default function Login() {
 
       setSheet({
         title: 'Correo reenviado',
-        message: 'Te enviamos un nuevo correo de verificación. Revisa tu bandeja y confirma tu cuenta.',
+        message:
+          'Te enviamos un nuevo correo de verificación. Revisa tu bandeja y confirma tu cuenta.',
         confirmText: 'Cerrar',
         onConfirm: () => setShowSheet(false),
         variant: 'info',
@@ -119,7 +142,8 @@ export default function Login() {
         if (isNotConfirmed) {
           setSheet({
             title: 'Correo no confirmado',
-            message: 'Revisa tu correo para confirmar tu cuenta. Si no lo ves, toca "Reenviar correo".',
+            message:
+              'Revisa tu correo para confirmar tu cuenta. Si no lo ves, toca "Reenviar correo".',
             confirmText: 'Reenviar correo',
             onConfirm: () => {
               setShowSheet(false);
@@ -173,12 +197,29 @@ export default function Login() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : androidBehavior}
+      keyboardVerticalOffset={insets.top}
     >
+      {/* Fondo */}
       <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
-      <View style={[s.wrap, { paddingBottom: insets.bottom + 24 }]}>
+
+      {/* Tinte fijo que NO se mueve con el teclado */}
+      <View pointerEvents="none" style={s.tint} />
+
+      <KeyboardAwareScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[s.wrap, { paddingBottom: insets.bottom + 24 }]}
+        enableOnAndroid
+        extraScrollHeight={24}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={s.logoFrame}>
-          <Image source={require('../../assets/icon.png')} style={s.logoImg} resizeMode="contain" />
+          <Image
+            source={require('../../assets/icon.png')}
+            style={s.logoImg}
+            resizeMode="contain"
+          />
         </View>
 
         <View style={s.card}>
@@ -207,7 +248,11 @@ export default function Login() {
               returnKeyType="go"
               onSubmitEditing={onLogin}
             />
-            <TouchableOpacity onPress={() => setShowPass(v => !v)} style={s.eyeBtn} hitSlop={10}>
+            <TouchableOpacity
+              onPress={() => setShowPass(v => !v)}
+              style={s.eyeBtn}
+              hitSlop={10}
+            >
               <Ionicons
                 name={showPass ? 'eye-off-outline' : 'eye-outline'}
                 size={20}
@@ -216,7 +261,7 @@ export default function Login() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => router.push('/(auth)/forgot-password')}
             style={s.forgotBtn}
             hitSlop={10}
@@ -240,7 +285,7 @@ export default function Login() {
 
         <View style={[s.footer, { paddingBottom: insets.bottom }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Text style={s.footerText}>¿No tienes una cuenta?{' '}</Text>
+            <Text style={s.footerText}>¿No tienes una cuenta? </Text>
             <Link href="/(auth)/register" asChild>
               <TouchableOpacity>
                 <Text style={s.link}>Regístrate</Text>
@@ -248,9 +293,14 @@ export default function Login() {
             </Link>
           </View>
         </View>
-      </View>
+      </KeyboardAwareScrollView>
 
-      <Modal visible={showSheet} transparent animationType="fade" onRequestClose={() => setShowSheet(false)}>
+      <Modal
+        visible={showSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSheet(false)}
+      >
         <View style={[s.overlay, { paddingBottom: insets.bottom }]}>
           <Pressable style={s.backdrop} onPress={() => setShowSheet(false)} />
           <View style={s.sheet}>
@@ -286,11 +336,19 @@ export default function Login() {
 
 const s = StyleSheet.create({
   wrap: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    flexGrow: 1,
     padding: 20,
     justifyContent: 'center',
   },
+
+ tint: {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  top: 0,
+  bottom: -80, // <-- prueba -40, -80, -120
+  backgroundColor: 'rgba(0,0,0,0.45)',
+},
 
   logoFrame: {
     alignSelf: 'center',
@@ -363,10 +421,7 @@ const s = StyleSheet.create({
   btnText: { color: C.textPrimary, fontWeight: '600' },
 
   footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 24,
+    marginTop: 16,
     alignItems: 'center',
     paddingHorizontal: 16,
   },
@@ -419,6 +474,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+
   bgImg: {
     ...StyleSheet.absoluteFillObject,
     opacity: 1,

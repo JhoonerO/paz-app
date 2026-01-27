@@ -1,5 +1,5 @@
-// app/_layout.tsx
-import { Slot, useRouter } from 'expo-router';
+//app/_layout.tsx
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
@@ -7,7 +7,6 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
-// ❌ NO IMPORTAR FeedProvider
 
 SplashScreen.preventAutoHideAsync();
 
@@ -51,9 +50,8 @@ export default function RootLayout() {
     const subscription = Linking.addEventListener('url', handleDeepLink);
 
     Linking.getInitialURL().then((url) => {
-      if (url) {
-        handleDeepLink({ url });
-      }
+      if (!url) return;
+      void handleDeepLink({ url });
     });
 
     return () => {
@@ -62,9 +60,7 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-    }
+    if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
 
   if (!fontsLoaded) return null;
@@ -72,7 +68,27 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={AppTheme}>
       <StatusBar style="light" backgroundColor="#0B0B0F" />
-      <Slot />
+
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animationTypeForReplace: 'push',
+          animation: 'fade',
+          contentStyle: { backgroundColor: '#0B0B0F' },
+        }}
+      >
+        {/* Flujos principales */}
+        <Stack.Screen name="(auth)" options={{ animation: 'fade_from_bottom' }} />
+        <Stack.Screen name="(tabs)" options={{ animation: 'default' }} />
+
+        {/* Pantallas top-level reales */}
+        <Stack.Screen name="search" options={{ animation: 'fade' }} />
+        <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
+
+        {/* Carpetas con rutas internas (ej: story/[id], profile/[id], profile/settings) */}
+        <Stack.Screen name="story" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
+      </Stack>
     </ThemeProvider>
   );
 }

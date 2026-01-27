@@ -1,5 +1,5 @@
 // app/profile/[id].tsx
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -14,15 +14,14 @@ import {
 } from 'react-native';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Link, useNavigation, useRouter, useLocalSearchParams } from 'expo-router';
+import { Link, useRouter, useLocalSearchParams } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'; // 👈 AGREGAR useSafeAreaInsets
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
-
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 
 type DBStory = {
   id: string;
@@ -39,7 +38,6 @@ type DBStory = {
   liked_at?: string;
 };
 
-
 type ProfileRow = {
   id: string;
   display_name: string | null;
@@ -49,7 +47,6 @@ type ProfileRow = {
   created_at: string;
 };
 
-
 type LikeUser = {
   id: string;
   display_name: string | null;
@@ -57,7 +54,6 @@ type LikeUser = {
   is_admin: boolean;
   created_at: string;
 };
-
 
 function getCategoryIcon(category: string) {
   switch (category) {
@@ -72,13 +68,11 @@ function getCategoryIcon(category: string) {
   }
 }
 
-
 export default function PublicProfile() {
-  const navigation = useNavigation();
   const router = useRouter();
+  const insets = useSafeAreaInsets(); // 👈 AGREGAR
   const { id: profileId } = useLocalSearchParams<{ id: string }>();
   const [fontsLoaded] = useFonts({ Risque_400Regular });
-
 
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -86,69 +80,28 @@ export default function PublicProfile() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [createdAt, setCreatedAt] = useState<string>('');
 
-
   const [tab, setTab] = useState<'mine' | 'likes'>('mine');
   const [stories, setStories] = useState<DBStory[]>([]);
   const [likedStories, setLikedStories] = useState<DBStory[]>([]);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
-
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
 
-
-  // 👇 NUEVO: Modal de insignias
   const [badgeModal, setBadgeModal] = useState<{ visible: boolean; type: 'admin' | 'early' | null }>({
     visible: false,
     type: null,
   });
 
-
-  useLayoutEffect(() => {
-    if (!fontsLoaded) return;
-
-
-    navigation.setOptions({
-      headerTitle: () => (
-        <Text
-          style={{
-            fontFamily: 'Risque_400Regular',
-            fontSize: 22,
-            color: '#F3F4F6',
-            letterSpacing: 1,
-          }}
-        >
-          U-PAZ
-        </Text>
-      ),
-      headerTitleAlign: 'center',
-      headerLeft: () => (
-        <TouchableOpacity
-          onPress={() => router.push('/')}
-          hitSlop={10}
-          style={{ paddingHorizontal: 16, paddingVertical: 8 }}
-        >
-          <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
-        </TouchableOpacity>
-      ),
-      headerRight: () => null,
-      headerStyle: {
-        backgroundColor: '#000000ff',
-      },
-      headerTintColor: '#F3F4F6',
-    });
-  }, [navigation, router, fontsLoaded]);
-
+  // 👇 REMOVER TODO EL useLayoutEffect
 
   const loadFromSupabase = useCallback(async () => {
     try {
       if (!profileId) return;
 
-
       const { data: authData } = await supabase.auth.getUser();
       const uidViewer = authData.user?.id ?? null;
       setViewerId(uidViewer);
-
 
       const { data: prof, error: profErr } = await supabase
         .from('profiles')
@@ -157,13 +110,11 @@ export default function PublicProfile() {
         .single<ProfileRow>();
       if (profErr) throw profErr;
 
-
       setDisplayName(prof?.display_name || 'Usuario');
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
       setIsAdmin(prof?.is_admin ?? false);
       setCreatedAt(prof?.created_at ?? '');
-
 
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
@@ -176,14 +127,11 @@ export default function PublicProfile() {
         .order('created_at', { ascending: false });
       if (mineErr) throw mineErr;
 
-
       const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
-
 
       const storiesWithAuthor: DBStory[] = (mine ?? []).map((story: any) => {
         const embeddedArr = toArray(story.profiles);
         const current = embeddedArr[0];
-
 
         if (!current) {
           return {
@@ -197,7 +145,6 @@ export default function PublicProfile() {
           };
         }
 
-
         if (current.avatar_url == null || current.display_name == null) {
           return {
             ...story,
@@ -210,11 +157,9 @@ export default function PublicProfile() {
           };
         }
 
-
         return { ...story, profiles: embeddedArr };
       });
       setStories(storiesWithAuthor);
-
 
       let likedList: DBStory[] = [];
       if (prof?.likes_public) {
@@ -225,12 +170,10 @@ export default function PublicProfile() {
           .order('created_at', { ascending: false });
         if (likeErr) throw likeErr;
 
-
         const ids = (likeRows || []).map((r: any) => r.story_id as string);
         if (ids.length) {
           const likedAtMap = new Map<string, string>();
           (likeRows || []).forEach((r: any) => likedAtMap.set(r.story_id, r.created_at));
-
 
           const { data: liked, error: likedErr } = await supabase
             .from('stories')
@@ -242,15 +185,12 @@ export default function PublicProfile() {
             .in('id', ids);
           if (likedErr) throw likedErr;
 
-
           const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
-
 
           likedList = (liked ?? []).map((story: any) => {
             const embeddedArr = toArray(story.profiles);
             let current = embeddedArr[0];
             let out: DBStory = { ...story, liked_at: likedAtMap.get(story.id) };
-
 
             if (!current) {
               out.profiles = [{ display_name: story.author_name || 'Autor', avatar_url: null }];
@@ -267,7 +207,6 @@ export default function PublicProfile() {
             return out;
           });
 
-
           const authorIds = Array.from(new Set(likedList.map(s => s.author_id)));
           if (authorIds.length) {
             const { data: authorProfiles } = await supabase
@@ -275,16 +214,13 @@ export default function PublicProfile() {
               .select('id, display_name, avatar_url')
               .in('id', authorIds);
 
-
             const pMap = new Map<string, { display_name: string | null; avatar_url: string | null }>();
             (authorProfiles ?? []).forEach((p: any) => {
               pMap.set(p.id, { display_name: p.display_name ?? null, avatar_url: p.avatar_url ?? null });
             });
 
-
             likedList = likedList.map(st => {
               const current = Array.isArray(st.profiles) ? st.profiles[0] : (st.profiles as any) || null;
-
 
               if (st.author_id === prof.id) {
                 return {
@@ -297,7 +233,6 @@ export default function PublicProfile() {
                   ],
                 };
               }
-
 
               const fromMap = pMap.get(st.author_id) ?? null;
               if (!current || current.avatar_url == null || current.display_name == null) {
@@ -315,7 +250,6 @@ export default function PublicProfile() {
             });
           }
 
-
           likedList.sort((a, b) => {
             const da = a.liked_at ?? a.created_at;
             const db = b.liked_at ?? b.created_at;
@@ -324,7 +258,6 @@ export default function PublicProfile() {
         }
       }
       setLikedStories(likedList);
-
 
       if (uidViewer) {
         const allIds = [...storiesWithAuthor.map(s => s.id), ...likedList.map(s => s.id)];
@@ -347,15 +280,12 @@ export default function PublicProfile() {
     }
   }, [profileId]);
 
-
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
-
 
   const toggleLike = useCallback(
     async (story: DBStory) => {
       if (!viewerId) return;
       const isLiked = likedIds.has(story.id);
-
 
       setLikedIds(prev => {
         const next = new Set(prev);
@@ -364,14 +294,11 @@ export default function PublicProfile() {
         return next;
       });
 
-
       const bump = (arr: DBStory[], id: string, d: number) =>
         arr.map(s => (s.id === id ? { ...s, likes_count: Math.max(0, (s.likes_count || 0) + d) } : s));
 
-
       setStories(curr => bump(curr, story.id, isLiked ? -1 : +1));
       setLikedStories(curr => bump(curr, story.id, isLiked ? -1 : +1));
-
 
       if (isLiked) {
         const { error } = await supabase.from('story_likes').delete().match({ user_id: viewerId, story_id: story.id });
@@ -384,100 +311,120 @@ export default function PublicProfile() {
     [viewerId, likedIds]
   );
 
-
   const listData = useMemo(() => (tab === 'mine' ? stories : likedStories), [tab, stories, likedStories]);
   const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
-
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+  if (!fontsLoaded) {
+    return (
       <View style={s.screen}>
-        <View style={s.avatarRow}>
-          <View style={s.avatarWrap}>
-            <TouchableOpacity 
-              activeOpacity={0.9}
-              onPress={() => avatarUrl && setShowAvatarZoom(true)}
-            >
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={s.avatar} />
-              ) : (
-                <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
-              )}
-            </TouchableOpacity>
-          </View>
-          
-          {/* 👇 NOMBRE MÁS GRANDE + INSIGNIAS CLICKEABLES */}
-          <View style={{ flex: 1 }}>
-            <Text style={s.name}>{displayName}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
-              {isAdmin && (
-                <TouchableOpacity
-                  onPress={() => setBadgeModal({ visible: true, type: 'admin' })}
-                  hitSlop={8}
-                >
-                  <MaterialIcons name="verified" size={24} color="#FFD700" />
-                </TouchableOpacity>
-              )}
-              {isEarlyUser && (
-                <TouchableOpacity
-                  onPress={() => setBadgeModal({ visible: true, type: 'early' })}
-                  hitSlop={8}
-                >
-                  <MaterialIcons name="verified" size={24} color="#06B6D4" />
-                </TouchableOpacity>
-              )}
+        <Text style={{ color: '#F3F4F6', textAlign: 'center', marginTop: 50 }}>
+          Cargando...
+        </Text>
+      </View>
+    );
+  }
+
+ return (
+  <GestureHandlerRootView style={{ flex: 1 }}>
+    {/* 👇 CAMBIO 1: Quitar 'top' de edges */}
+    <SafeAreaView style={s.screen} edges={['bottom']}>
+      {/* 👇 CAMBIO 2: Mantener el paddingTop y height con insets */}
+      <View style={[s.header, { paddingTop: insets.top, height: 56 + insets.top }]}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={s.backButton}
+          hitSlop={10}
+        >
+          <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
+        </TouchableOpacity>
+
+        <Text style={s.headerTitle}>U-PAZ</Text>
+        <View style={{ width: 32 }} />
+      </View>
+
+        <View style={{ flex: 1 }}>
+          <View style={s.avatarRow}>
+            <View style={s.avatarWrap}>
+              <TouchableOpacity 
+                activeOpacity={0.9}
+                onPress={() => avatarUrl && setShowAvatarZoom(true)}
+              >
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={s.avatar} />
+                ) : (
+                  <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            <View style={{ flex: 1 }}>
+              <Text style={s.name}>{displayName}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                {isAdmin && (
+                  <TouchableOpacity
+                    onPress={() => setBadgeModal({ visible: true, type: 'admin' })}
+                    hitSlop={8}
+                  >
+                    <MaterialIcons name="verified" size={24} color="#FFD700" />
+                  </TouchableOpacity>
+                )}
+                {isEarlyUser && (
+                  <TouchableOpacity
+                    onPress={() => setBadgeModal({ visible: true, type: 'early' })}
+                    hitSlop={8}
+                  >
+                    <MaterialIcons name="verified" size={24} color="#06B6D4" />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
-        </View>
 
-
-        <View style={s.tabs}>
-          <View style={s.tabBtnContainer}>
-            <TouchableOpacity 
-              onPress={() => setTab('mine')} 
-              style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
-            >
-              <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
-                {`Mis Historias ${stories.length}`}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => likesPublic && setTab('likes')}
-              style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
-              disabled={!likesPublic}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
-                {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
-              </View>
-            </TouchableOpacity>
+          <View style={s.tabs}>
+            <View style={s.tabBtnContainer}>
+              <TouchableOpacity 
+                onPress={() => setTab('mine')} 
+                style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
+              >
+                <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
+                  {`Mis Historias ${stories.length}`}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => likesPublic && setTab('likes')}
+                style={[s.tabBtn, tab === 'likes' && s.tabBtnActive, !likesPublic && { borderColor: '#363636ff' }]}
+                disabled={!likesPublic}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
+                  {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          <FlatList
+            data={listData}
+            keyExtractor={(it) => it.id}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
+            ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+            ListEmptyComponent={
+              <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
+                {tab === 'mine' ? 'Aún no tiene historias.' : (likesPublic ? 'No hay historias en "Me gusta".' : 'Likes ocultos.')}
+              </Text>
+            }
+            renderItem={({ item }) => (
+              <PublicStoryCard
+                item={item}
+                isLiked={likedIds.has(item.id)}
+                onToggleLike={() => toggleLike(item)}
+                viewerId={viewerId}
+              />
+            )}
+            showsVerticalScrollIndicator={false}
+          />
         </View>
 
-
-        <FlatList
-          data={listData}
-          keyExtractor={(it) => it.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-          ListEmptyComponent={
-            <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
-              {tab === 'mine' ? 'Aún no tiene historias.' : (likesPublic ? 'No hay historias en "Me gusta".' : 'Likes ocultos.')}
-            </Text>
-          }
-          renderItem={({ item }) => (
-            <PublicStoryCard
-              item={item}
-              isLiked={likedIds.has(item.id)}
-              onToggleLike={() => toggleLike(item)}
-              viewerId={viewerId}
-            />
-          )}
-          showsVerticalScrollIndicator={false}
-        />
-
-
-        {/* 👇 MODAL DE INSIGNIAS */}
         <Modal visible={badgeModal.visible} transparent animationType="fade">
           <View style={s.badgeOverlay}>
             <TouchableOpacity
@@ -492,7 +439,6 @@ export default function PublicProfile() {
                 <Ionicons name="close-circle" size={28} color="#F3F4F6" />
               </TouchableOpacity>
 
-
               {badgeModal.type === 'admin' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#FFD700" />
@@ -502,7 +448,6 @@ export default function PublicProfile() {
                   </Text>
                 </View>
               )}
-
 
               {badgeModal.type === 'early' && (
                 <View style={s.badgeInfo}>
@@ -517,18 +462,15 @@ export default function PublicProfile() {
           </View>
         </Modal>
 
-
-        {/* MODAL ZOOM DE AVATAR */}
         <ImageZoomModal 
           visible={showAvatarZoom}
           imageUri={avatarUrl || ''}
           onClose={() => setShowAvatarZoom(false)}
         />
-      </View>
+      </SafeAreaView>
     </GestureHandlerRootView>
   );
 }
-
 
 function ImageZoomModal({ 
   visible, 
@@ -544,9 +486,7 @@ function ImageZoomModal({
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
-
   const doubleTapRef = useCallback((ref: any) => ref, []);
-
 
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
@@ -562,11 +502,9 @@ function ImageZoomModal({
     }
   };
 
-
   const onPinch = (event: any) => {
     scale.value = baseScale.value * event.nativeEvent.scale;
   };
-
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
@@ -578,7 +516,6 @@ function ImageZoomModal({
     }
   };
 
-
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -587,7 +524,6 @@ function ImageZoomModal({
     ],
     borderRadius: scale.value === 1 ? (SCREEN_WIDTH * 0.9) / 2 : 0,
   }));
-
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -599,7 +535,6 @@ function ImageZoomModal({
         >
           <Ionicons name="close-circle" size={40} color="#fff" />
         </TouchableOpacity>
-
 
         <TapGestureHandler
           ref={doubleTapRef}
@@ -626,7 +561,6 @@ function ImageZoomModal({
   );
 }
 
-
 function PublicStoryCard({
   item,
   isLiked,
@@ -643,20 +577,15 @@ function PublicStoryCard({
     ? item.profiles?.[0]
     : (item.profiles as any) || null;
 
-
   const authorForCard =
     item.author_name?.trim() || (profile0?.display_name?.trim() || 'Autor');
   const authorAvatar = profile0?.avatar_url || null;
 
-
-  // 👇 NUEVO: Estado para modal de likes
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
 
-
-  // 👇 NUEVO: Función para cargar usuarios que dieron like
   const handleShowLikes = async () => {
     setShowLikesModal(true);
     setLoadingLikes(true);
@@ -694,7 +623,6 @@ function PublicStoryCard({
     }
   };
 
-
   const handleLikePress = async () => {
     if (isLiking) return;
     setIsLiking(true);
@@ -705,10 +633,8 @@ function PublicStoryCard({
     }
   };
 
-
   const likesCount = item.likes_count ?? 0;
   const commentsCount = item.comments_count ?? 0;
-
 
   return (
     <>
@@ -743,12 +669,9 @@ function PublicStoryCard({
             </View>
           </View>
 
-
           <Text style={s.cardTitle}>{item.title}</Text>
 
-
           {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
-
 
           {!hasCover && (
             <Text style={s.excerpt} numberOfLines={3}>
@@ -756,9 +679,7 @@ function PublicStoryCard({
             </Text>
           )}
 
-
           <View style={s.footerRow}>
-            {/* Botón de like */}
             <TouchableOpacity 
               onPress={handleLikePress} 
               style={s.meta} 
@@ -773,8 +694,6 @@ function PublicStoryCard({
               />
             </TouchableOpacity>
 
-
-            {/* Contador de likes clickeable */}
             <TouchableOpacity 
               onPress={handleShowLikes}
               activeOpacity={0.8}
@@ -786,14 +705,10 @@ function PublicStoryCard({
               </Text>
             </TouchableOpacity>
 
-
-            {/* Icono de comentarios */}
             <View style={[s.meta, { marginLeft: 12 }]}>
               <Ionicons name="chatbox-outline" size={16} color="#F3F4F6" />
             </View>
 
-
-            {/* Contador de comentarios */}
             <View style={{ marginLeft: 4 }}>
               <Text style={s.metaTxt}>{commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}</Text>
             </View>
@@ -801,8 +716,6 @@ function PublicStoryCard({
         </TouchableOpacity>
       </Link>
 
-
-      {/* 👇 NUEVO: Modal de likes */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
           <TouchableOpacity
@@ -819,7 +732,6 @@ function PublicStoryCard({
                 <Ionicons name="close" size={24} color="#F3F4F6" />
               </TouchableOpacity>
             </View>
-
 
             {loadingLikes ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -871,9 +783,35 @@ function PublicStoryCard({
   );
 }
 
-
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
+  
+  // 👇 AGREGAR ESTILOS DEL HEADER
+  header: {
+    backgroundColor: '#000000ff',
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#181818ff',
+    zIndex: 1000,
+  },
+  backButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontFamily: 'Risque_400Regular',
+    fontSize: 22,
+    color: '#F3F4F6',
+    letterSpacing: 0.5,
+    flex: 1,
+    textAlign: 'center',
+  },
+  
   avatarRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1002,7 +940,6 @@ const s = StyleSheet.create({
     height: SCREEN_WIDTH * 0.9,
     borderRadius: (SCREEN_WIDTH * 0.9) / 2,
   },
-  // 👇 NUEVOS: Estilos para el modal de likes
   likesOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

@@ -18,10 +18,16 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
-import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  Easing,
+  FadeInRight,
+} from 'react-native-reanimated';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 
@@ -29,17 +35,18 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 
 const DEFAULT_AVATARS = [
-  { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg') },
-  { id: 'caballo', name: 'Caballo', source: require('../../imagenes_de_Perfil/caballo.jpg') },
-  { id: 'capibara', name: 'Capibara', source: require('../../imagenes_de_Perfil/capibara.jpg') },
-  { id: 'cocodrilo', name: 'Babilla', source: require('../../imagenes_de_Perfil/cocodrilito.jpg') },
-  { id: 'foca', name: 'Manatí', source: require('../../imagenes_de_Perfil/foca.jpg') },
-  { id: 'murcielago', name: 'Murciélago', source: require('../../imagenes_de_Perfil/murcielago.jpg') },
-  { id: 'paloma', name: 'Paloma', source: require('../../imagenes_de_Perfil/paloma.jpg') },
-  { id: 'pollo', name: 'Gallina', source: require('../../imagenes_de_Perfil/pollo.jpg') },
-  { id: 'rana', name: 'Rana', source: require('../../imagenes_de_Perfil/rana.jpg') },
-  { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg') },
+  { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg'), publicPath: 'ardilla.jpg' },
+  { id: 'caballo', name: 'Caballo', source: require('../../imagenes_de_Perfil/caballo.jpg'), publicPath: 'caballo.jpg' },
+  { id: 'capibara', name: 'Capibara', source: require('../../imagenes_de_Perfil/capibara.jpg'), publicPath: 'capibara.jpg' },
+  { id: 'cocodrilo', name: 'Babilla', source: require('../../imagenes_de_Perfil/cocodrilito.jpg'), publicPath: 'cocodrilito.jpg' },
+  { id: 'foca', name: 'Manatí', source: require('../../imagenes_de_Perfil/foca.jpg'), publicPath: 'foca.jpg' },
+  { id: 'murcielago', name: 'Murciélago', source: require('../../imagenes_de_Perfil/murcielago.jpg'), publicPath: 'murcielago.jpg' },
+  { id: 'paloma', name: 'Paloma', source: require('../../imagenes_de_Perfil/paloma.jpg'), publicPath: 'paloma.jpg' },
+  { id: 'pollo', name: 'Gallina', source: require('../../imagenes_de_Perfil/pollo.jpg'), publicPath: 'pollo.jpg' },
+  { id: 'rana', name: 'Rana', source: require('../../imagenes_de_Perfil/rana.jpg'), publicPath: 'rana.jpg' },
+  { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg'), publicPath: 'tigre.jpg' },
 ];
+
 
 
 type DBStory = {
@@ -89,7 +96,7 @@ function getExtAndType(uri: string) {
 }
 
 
-async function uriToArrayBuffer(uri: string) {
+async function uriToArrayBuffer(uri: string) {  
   const res: any = await fetch(uri);
   const ab = await res.arrayBuffer();
   return ab as ArrayBuffer;
@@ -113,6 +120,19 @@ function getCategoryIcon(category: string) {
 export default function Profile() {
   const navigation = useNavigation();
   const router = useRouter();
+
+    // ✅ Animación de entrada al tab
+  const enter = useSharedValue(1);
+
+  const enterStyle = useAnimatedStyle(() => {
+    return {
+      opacity: enter.value,
+transform: [
+  { translateX: (1 - enter.value) * 60 },
+  { scale: 0.98 + enter.value * 0.02 },
+],
+    };
+  });
 
 
   const [fontsLoaded] = useFonts({
@@ -192,7 +212,7 @@ export default function Profile() {
             fontFamily: 'Risque_400Regular',
             fontSize: 22,
             color: '#F3F4F6',
-            letterSpacing: 1,
+            letterSpacing: 0.5,
           }}
         >
           U-PAZ
@@ -402,76 +422,58 @@ export default function Profile() {
 
 
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
-  useFocusEffect(useCallback(() => { loadFromSupabase(); }, [loadFromSupabase]));
+useFocusEffect(
+  useCallback(() => {
+    enter.value = 0;
+    enter.value = withTiming(1, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+    });
+
+    loadFromSupabase();
+  }, [loadFromSupabase])
+);
 
 
   async function selectDefaultAvatar(avatarId: string) {
-    if (uploadingAvatar) return;
+  if (uploadingAvatar) return;
 
+  try {
+    setUploadingAvatar(true);
 
-    try {
-      setUploadingAvatar(true);
+    const { data: authData } = await supabase.auth.getUser();
+    const uid = authData.user?.id;
+    if (!uid) return;
 
+    const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
+    if (!avatar) return;
 
-      const { data: authData } = await supabase.auth.getUser();
-      const uid = authData.user?.id;
-      if (!uid) return;
+    // ✅ URL pública del bucket avatars
+    const { data: pub } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(avatar.publicPath);
 
+    const url = pub?.publicUrl ?? null;
+    if (!url) throw new Error('No se pudo obtener la URL del avatar.');
 
-      const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
-      if (!avatar) return;
+    // ✅ Guardar en profile (sin subir archivo)
+    const { error: profErr } = await supabase
+      .from('profiles')
+      .update({ avatar_url: url })
+      .eq('id', uid);
 
+    if (profErr) throw profErr;
 
-      const asset = Asset.fromModule(avatar.source);
-      await asset.downloadAsync();
-
-
-      if (!asset.localUri) {
-        showNotification('Error', 'No se pudo cargar la imagen.', 'error');
-        setUploadingAvatar(false);
-        return;
-      }
-
-
-      const { ext, type } = getExtAndType(asset.localUri);
-      const ab = await uriToArrayBuffer(asset.localUri);
-      const path = `${uid}/avatar_${avatarId}.${ext}`;
-
-
-      const { error: upErr } = await supabase.storage
-        .from('covers')
-        .upload(path, ab, { upsert: true, contentType: type, cacheControl: '3600' });
-
-
-      if (upErr) throw upErr;
-
-
-      const { data: pub } = supabase.storage.from('covers').getPublicUrl(path);
-      const url = pub.publicUrl;
-
-
-      const { error: profErr } = await supabase
-        .from('profiles')
-        .update({ avatar_url: url })
-        .eq('id', uid);
-
-
-      if (profErr) {
-        showNotification('Error', 'No se pudo actualizar el avatar.', 'error');
-        setUploadingAvatar(false);
-        return;
-      }
-
-
-      setAvatarUrl(url);
-      setShowAvatarPicker(false);
-      setUploadingAvatar(false);
-      showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
-    } catch (e: any) {
-      setUploadingAvatar(false);
-      showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
-    }
+    setAvatarUrl(url);
+    setShowAvatarPicker(false);
+    showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
+  } catch (e: any) {
+    showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
+  } finally {
+    setUploadingAvatar(false);
   }
+}
+
 
 
   async function pickImage(): Promise<string | null> {
@@ -608,8 +610,8 @@ export default function Profile() {
 
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={s.screen}>
+<GestureHandlerRootView style={{ flex: 1 }}>
+  <Animated.View style={[s.screen, enterStyle]}>
         <View style={s.avatarRow}>
           <View style={s.avatarWrap}>
             <TouchableOpacity
@@ -861,8 +863,9 @@ export default function Profile() {
             </View>
           </View>
         </Modal>
-      </View>
-    </GestureHandlerRootView>
+  </Animated.View>
+</GestureHandlerRootView>
+
   );
 }
 

@@ -20,10 +20,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
-
 const KEY_SESSION = 'session_active';
 const KEY_SHOW_LIKES_CACHE = 'pref_showLikes';
-
 
 type Story = {
   id: string;
@@ -33,7 +31,6 @@ type Story = {
   category: string;
   author_name: string | null;
 };
-
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -75,7 +72,6 @@ export default function SettingsScreen() {
     variant: 'info',
   });
 
-
   function showNotification(
     title: string,
     message: string,
@@ -92,7 +88,6 @@ export default function SettingsScreen() {
     });
     setShowSheet(true);
   }
-
 
   useEffect(() => {
     (async () => {
@@ -118,7 +113,6 @@ export default function SettingsScreen() {
     })();
   }, []);
 
-
   async function toggleLikes(next: boolean) {
     if (!userId || savingLikes) return;
     setSavingLikes(true);
@@ -140,7 +134,6 @@ export default function SettingsScreen() {
     setSavingLikes(false);
   }
 
-
   const loadStories = async () => {
     if (!userId) return;
     setLoadingStories(true);
@@ -159,7 +152,6 @@ export default function SettingsScreen() {
     setLoadingStories(false);
   };
 
-
   const openEditModal = (story: Story) => {
     setSelectedStory(story);
     setEditTitle(story.title);
@@ -168,7 +160,6 @@ export default function SettingsScreen() {
     setEditCategory(story.category);
     setShowEditModal(true);
   };
-
 
   const saveStoryChanges = async () => {
     if (!selectedStory || !editTitle.trim() || !editBody.trim()) {
@@ -203,11 +194,9 @@ export default function SettingsScreen() {
     }
   };
 
-
   function logout() {
     setConfirmOpen(true);
   }
-
 
   async function doLogout() {
     try {
@@ -220,7 +209,6 @@ export default function SettingsScreen() {
     }
   }
 
-
   if (!fontsLoaded) {
     return (
       <View style={s.screen}>
@@ -231,10 +219,10 @@ export default function SettingsScreen() {
     );
   }
 
-
   return (
     <SafeAreaView style={s.screen} edges={['top', 'bottom']}>
-      <View style={[s.header, { paddingTop: insets.top }]}>
+      {/* 👇 CAMBIO 1: height: 56 + insets.top */}
+      <View style={[s.header, { paddingTop: insets.top, height: 56 + insets.top }]}>
         <TouchableOpacity
           onPress={() => router.replace('/(tabs)/profile')}
           style={s.headerBtn}
@@ -247,7 +235,7 @@ export default function SettingsScreen() {
             fontFamily: 'Risque_400Regular',
             fontSize: 22,
             color: '#F3F4F6',
-            letterSpacing: 1,
+            letterSpacing: 0.5, // 👈 CAMBIO 2: de 1 a 0.5
             flex: 1, 
             textAlign: 'center',
           }}
@@ -297,7 +285,8 @@ export default function SettingsScreen() {
         onRequestClose={() => setShowEditModal(false)}
       >
         <SafeAreaView style={s.screen}>
-          <View style={[s.header, { position: 'relative', paddingTop: insets.top }]}>
+          {/* 👇 CAMBIO 3: height: 56 + insets.top */}
+          <View style={[s.header, { position: 'relative', paddingTop: insets.top, height: 56 + insets.top }]}>
             <TouchableOpacity
               onPress={() => setShowEditModal(false)}
               style={s.headerBtn}
@@ -338,7 +327,6 @@ export default function SettingsScreen() {
                   {item.cover_url ? (
                     <Image source={{ uri: item.cover_url }} style={s.storyGridImage} />
                   ) : (
-                    // 👇 NUEVO: Rectángulo de mitad de altura
                     <View style={s.storyGridPlaceholder}>
                       <Text style={s.storyGridPlaceholderTitle} numberOfLines={2}>{item.title}</Text>
                       <Text style={s.storyGridPlaceholderBody} numberOfLines={2}>{item.body}</Text>
@@ -365,7 +353,8 @@ export default function SettingsScreen() {
         }}
       >
         <SafeAreaView style={s.screen}>
-          <View style={[s.header, { position: 'relative', paddingTop: insets.top }]}>
+          {/* 👇 CAMBIO 4: height: 56 + insets.top */}
+          <View style={[s.header, { position: 'relative', paddingTop: insets.top, height: 56 + insets.top }]}>
             <TouchableOpacity
               onPress={() => setSelectedStory(null)}
               style={s.headerBtn}
@@ -546,7 +535,6 @@ export default function SettingsScreen() {
   );
 }
 
-
 function SettingRow({
   icon,
   label,
@@ -564,7 +552,6 @@ function SettingRow({
     </View>
   );
 }
-
 
 const s = StyleSheet.create({
   screen: {
