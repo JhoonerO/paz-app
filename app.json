@@ -3,7 +3,7 @@
     "name": "PAZ",
     "slug": "paz",
     "scheme": "upaz",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B0B0F",
@@ -20,6 +20,7 @@
     },
     "android": {
       "package": "com.jhoonero.paz",
+       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0B0F"

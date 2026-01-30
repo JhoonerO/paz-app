@@ -240,7 +240,7 @@ export default function SettingsScreen() {
             textAlign: 'center',
           }}
         >
-          Configuracion U-Paz
+          Configuración
         </Text>
         <View style={s.headerBtn} />
       </View>

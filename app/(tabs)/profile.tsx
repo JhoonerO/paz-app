@@ -212,7 +212,7 @@ transform: [
             fontFamily: 'Risque_400Regular',
             fontSize: 22,
             color: '#F3F4F6',
-            letterSpacing: 0.5,
+            letterSpacing: 0.4,
           }}
         >
           U-PAZ
@@ -448,7 +448,6 @@ useFocusEffect(
     const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
     if (!avatar) return;
 
-    // ✅ URL pública del bucket avatars
     const { data: pub } = supabase.storage
       .from('avatars')
       .getPublicUrl(avatar.publicPath);
@@ -456,7 +455,6 @@ useFocusEffect(
     const url = pub?.publicUrl ?? null;
     if (!url) throw new Error('No se pudo obtener la URL del avatar.');
 
-    // ✅ Guardar en profile (sin subir archivo)
     const { error: profErr } = await supabase
       .from('profiles')
       .update({ avatar_url: url })

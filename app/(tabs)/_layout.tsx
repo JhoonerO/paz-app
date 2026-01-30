@@ -77,7 +77,7 @@ export default function TabsLayout() {
         fontFamily: 'Risque_400Regular',
         fontSize: 22,
         color: '#F3F4F6',
-        letterSpacing: 0.5,
+        letterSpacing: 0.4,
       }}
     >
       U-PAZ

@@ -133,7 +133,7 @@ export default function SearchScreen() {
 
         <TextInput
           style={s.input}
-          placeholder="Buscar historias, autores, categorías..."
+          placeholder="Buscar historias, autores..."
           placeholderTextColor="#6B6B78"
           value={searchText}
           onChangeText={setSearchText}

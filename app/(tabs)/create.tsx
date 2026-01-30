@@ -12,12 +12,15 @@ import {
   Platform,
   Modal,
   ScrollView,
+  ActivityIndicator,
+  Pressable, // 👈 AGREGAR
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
+import { moderateImage } from '../../lib/moderation';
 
 import Animated, {
   useSharedValue,
@@ -55,7 +58,6 @@ export default function CreateScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  // ✅ Animación de entrada al tab
   const enter = useSharedValue(1);
   const enterStyle = useAnimatedStyle(() => {
     return {
@@ -82,6 +84,11 @@ export default function CreateScreen() {
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pickingImage, setPickingImage] = useState(false);
+  const [moderating, setModerating] = useState(false);
+  
+  // 👇 NUEVO: Estado para modal de rechazo
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const categories = [
     {
@@ -113,15 +120,29 @@ export default function CreateScreen() {
       }
 
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.9,
       });
 
       if (!res.canceled) {
-        setCoverUri(res.assets[0].uri);
+        const uri = res.assets[0].uri;
+        
+        setModerating(true);
+        const moderation = await moderateImage(uri);
+        setModerating(false);
+
+        if (!moderation.isApproved) {
+          // 👇 CAMBIO: Usar modal personalizado en vez de Alert
+          setRejectionReason(moderation.reason || 'La imagen contiene contenido inapropiado');
+          setShowRejectionModal(true);
+          return;
+        }
+
+        setCoverUri(uri);
       }
     } catch (error) {
       console.error('Error al seleccionar imagen:', error);
+      setModerating(false);
     } finally {
       setPickingImage(false);
     }
@@ -173,7 +194,6 @@ export default function CreateScreen() {
       setCoverUri(null);
       setCategory('Urbana');
 
-      // Mantengo tu comportamiento (volver al root de tabs)
       router.replace('/(tabs)');
     } catch (e: any) {
       console.error(e);
@@ -198,12 +218,11 @@ export default function CreateScreen() {
           nestedScrollEnabled
         >
           <Animated.View style={[s.container, { paddingBottom: insets.bottom + 40 }, enterStyle]}>
-            {/* PORTADA */}
             <TouchableOpacity
-              style={[s.imagePicker, pickingImage && { opacity: 0.6 }]}
+              style={[s.imagePicker, (pickingImage || moderating) && { opacity: 0.6 }]}
               onPress={pickImage}
               activeOpacity={0.8}
-              disabled={pickingImage}
+              disabled={pickingImage || moderating}
             >
               {coverUri ? (
                 <Image source={{ uri: coverUri }} style={s.cover} />
@@ -211,13 +230,23 @@ export default function CreateScreen() {
                 <View style={s.coverPlaceholder}>
                   <Ionicons name="image-outline" size={22} color="#9CA3AF" />
                   <Text style={{ color: '#9CA3AF', marginTop: 6 }}>
-                    {pickingImage ? 'Abriendo galería...' : 'Añadir portada (opcional)'}
+                    {pickingImage 
+                      ? 'Abriendo galería...' 
+                      : moderating 
+                      ? 'Verificando imagen...' 
+                      : 'Añadir portada (opcional)'}
                   </Text>
+                </View>
+              )}
+              
+              {moderating && (
+                <View style={s.moderatingOverlay}>
+                  <ActivityIndicator size="large" color="#F3F4F6" />
+                  <Text style={s.moderatingText}>Analizando imagen...</Text>
                 </View>
               )}
             </TouchableOpacity>
 
-            {/* AUTOR */}
             <TextInput
               placeholder="Autor (opcional)"
               placeholderTextColor="#8A8A93"
@@ -226,7 +255,6 @@ export default function CreateScreen() {
               onChangeText={setAuthor}
             />
 
-            {/* TÍTULO */}
             <TextInput
               placeholder="Título"
               placeholderTextColor="#8A8A93"
@@ -235,7 +263,6 @@ export default function CreateScreen() {
               onChangeText={setTitle}
             />
 
-            {/* SELECTOR CATEGORÍA */}
             <TouchableOpacity
               style={s.input}
               onPress={() => setShowCategoryPicker(true)}
@@ -247,7 +274,6 @@ export default function CreateScreen() {
               </View>
             </TouchableOpacity>
 
-            {/* HISTORIA */}
             <TextInput
               placeholder="Cuenta tu historia…"
               placeholderTextColor="#8A8A93"
@@ -258,7 +284,6 @@ export default function CreateScreen() {
               scrollEnabled
             />
 
-            {/* BOTÓN PUBLICAR */}
             <TouchableOpacity
               style={[s.btn, submitting && { opacity: 0.6 }]}
               activeOpacity={0.85}
@@ -271,7 +296,7 @@ export default function CreateScreen() {
           </Animated.View>
         </ScrollView>
 
-        {/* MODAL CATEGORÍAS */}
+        {/* Modal de categorías */}
         <Modal
           visible={showCategoryPicker}
           transparent
@@ -317,6 +342,34 @@ export default function CreateScreen() {
             </View>
           </TouchableOpacity>
         </Modal>
+
+        {/* 👇 NUEVO: Modal personalizado de rechazo */}
+        <Modal
+          visible={showRejectionModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowRejectionModal(false)}
+        >
+          <View style={s.rejectionOverlay}>
+            <Pressable style={s.rejectionBackdrop} onPress={() => setShowRejectionModal(false)} />
+            <View style={s.rejectionModal}>
+              <View style={s.rejectionIconWrap}>
+                <Ionicons name="alert-circle" size={56} color="#EF4444" />
+              </View>
+              
+              <Text style={s.rejectionTitle}>Imagen rechazada</Text>
+              <Text style={s.rejectionMessage}>{rejectionReason}</Text>
+              
+              <TouchableOpacity
+                style={s.rejectionButton}
+                onPress={() => setShowRejectionModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={s.rejectionButtonText}>Entendido</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -325,7 +378,13 @@ export default function CreateScreen() {
 const s = StyleSheet.create({
   container: { padding: 16, gap: 12 },
 
-  imagePicker: { borderWidth: 1, borderColor: '#181818ff', borderRadius: 12, overflow: 'hidden' },
+  imagePicker: { 
+    borderWidth: 1, 
+    borderColor: '#181818ff', 
+    borderRadius: 12, 
+    overflow: 'hidden',
+    position: 'relative',
+  },
   cover: { width: '100%', aspectRatio: 16 / 9 },
   coverPlaceholder: {
     width: '100%',
@@ -333,6 +392,23 @@ const s = StyleSheet.create({
     backgroundColor: '#010102ff',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  moderatingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  moderatingText: {
+    color: '#F3F4F6',
+    fontSize: 16,
+    fontWeight: '600',
   },
 
   input: {
@@ -418,4 +494,67 @@ const s = StyleSheet.create({
     gap: 8,
   },
   btnText: { color: '#F3F4F6', fontWeight: '600' },
+
+  // 👇 NUEVOS ESTILOS: Modal de rechazo personalizado
+  rejectionOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  rejectionBackdrop: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+  rejectionModal: {
+    backgroundColor: '#010102ff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#181818ff',
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  rejectionIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#1F1416',
+    borderWidth: 2,
+    borderColor: '#3F1D1D',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  rejectionTitle: {
+    color: '#F3F4F6',
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  rejectionMessage: {
+    color: '#D1D5DB',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  rejectionButton: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+  },
+  rejectionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });

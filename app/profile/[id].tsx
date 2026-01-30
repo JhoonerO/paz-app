@@ -326,9 +326,7 @@ export default function PublicProfile() {
 
  return (
   <GestureHandlerRootView style={{ flex: 1 }}>
-    {/* 👇 CAMBIO 1: Quitar 'top' de edges */}
     <SafeAreaView style={s.screen} edges={['bottom']}>
-      {/* 👇 CAMBIO 2: Mantener el paddingTop y height con insets */}
       <View style={[s.header, { paddingTop: insets.top, height: 56 + insets.top }]}>
         <TouchableOpacity
           onPress={() => router.back()}
