@@ -35,14 +35,12 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const HEADER_BAR = 56;
 
-  const [fontsLoaded] = useFonts({
-    Risque_400Regular,
-  });
+  const [fontsLoaded] = useFonts({ Risque_400Regular });
 
-  // Carga inicial de notificaciones desde Supabase
   const loadNotifications = async (userId: string) => {
     setLoading(true);
-    
+
+    // ✅ author_name eliminado, join a profiles del autor
     const { data, error } = await supabase
       .from('notifications')
       .select(`
@@ -52,7 +50,12 @@ export default function NotificationsScreen() {
         created_at,
         read,
         profiles!notifications_actor_id_fkey ( display_name, avatar_url ),
-        stories!notifications_story_id_fkey ( title, cover_url, author_name )
+        stories!notifications_story_id_fkey (
+          title,
+          cover_url,
+          author_id,
+          profiles!stories_author_id_fkey ( display_name )
+        )
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
@@ -76,7 +79,8 @@ export default function NotificationsScreen() {
         actorAvatar,
         storyId: n.story_id,
         storyTitle: n.stories?.title?.trim() || 'Historia sin título',
-        storyAuthor: n.stories?.author_name?.trim() || 'Autor',
+        // ✅ display_name del autor via join, sin author_name
+        storyAuthor: n.stories?.profiles?.display_name?.trim() || 'Autor',
         storyCover,
         createdAt: new Date(n.created_at).getTime(),
         read: n.read,
@@ -98,20 +102,31 @@ export default function NotificationsScreen() {
 
       await loadNotifications(uid);
 
-      // Escucha en tiempo real nuevas notificaciones
-      const channel = supabase
-        .channel('notifications-listener')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${uid}`,
-          },
-          () => loadNotifications(uid)
-        )
-        .subscribe();
+        const channel = supabase
+          .channel('notifications-listener')
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${uid}`,
+            },
+            () => loadNotifications(uid)
+          )
+          // ✅ Agrega este bloque
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${uid}`,
+            },
+            () => loadNotifications(uid)
+          )
+          .subscribe();
+
 
       return () => {
         supabase.removeChannel(channel);
@@ -121,7 +136,6 @@ export default function NotificationsScreen() {
     loadAndListen();
   }, []);
 
-  // Marca una notificación como leída y actualiza el estado local
   const markAsRead = async (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
@@ -176,7 +190,6 @@ export default function NotificationsScreen() {
   );
 }
 
-// Fila individual de notificación
 function NotificationRow({
   item,
   onRead,
@@ -255,7 +268,6 @@ function NotificationRow({
   );
 }
 
-// Calcula el tiempo transcurrido
 function timeAgo(ts: number) {
   const diff = Math.max(1, Math.floor((Date.now() - ts) / 1000));
   if (diff < 60) return `hace ${diff}s`;
@@ -280,30 +292,25 @@ const s = StyleSheet.create({
   backButton: {
     position: 'absolute',
     left: 6,
-    top: 30, // 👈 CAMBIO 1
-    bottom: 0, // 👈 CAMBIO 2
-    justifyContent: 'center', // 👈 CAMBIO 3
+    top: 30,
+    bottom: 0,
+    justifyContent: 'center',
     paddingHorizontal: 4,
     zIndex: 10,
   },
-
   headerTitle: {
     fontFamily: 'Risque_400Regular',
     fontSize: 22,
     color: '#F3F4F6',
     letterSpacing: 0.5,
   },
-  
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
   },
-  loadingText: {
-    color: '#9CA3AF',
-    fontSize: 16,
-  },
+  loadingText: { color: '#9CA3AF', fontSize: 16 },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -311,18 +318,8 @@ const s = StyleSheet.create({
     paddingTop: 100,
     gap: 12,
   },
-  emptyTitle: {
-    color: '#F3F4F6',
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 16,
-  },
-  emptySubtitle: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  
+  emptyTitle: { color: '#F3F4F6', fontSize: 20, fontWeight: '700', marginTop: 16 },
+  emptySubtitle: { color: '#9CA3AF', fontSize: 14, textAlign: 'center' },
   row: {
     backgroundColor: '#010102ff',
     borderWidth: 1,

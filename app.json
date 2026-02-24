@@ -21,6 +21,7 @@
     "android": {
       "package": "com.jhoonero.paz",
        "versionCode": 1,
+       "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0B0F"
@@ -68,7 +69,8 @@
       }
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-image-picker"
     ]
   }
 }

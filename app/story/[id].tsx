@@ -15,7 +15,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Link } from 'expo-router';
-import { Ionicons, AntDesign } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState, useCallback } from 'react';
@@ -23,24 +23,28 @@ import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-
-
-
+import {
+  GestureHandlerRootView,
+  PinchGestureHandler,
+  TapGestureHandler,
+  State,
+} from 'react-native-gesture-handler';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withRepeat,
+  withTiming,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-
-
 
 type Params = {
   id: string;
   source?: 'home' | 'profile' | 'notifications';
 };
-
-
-
 
 type Comment = {
   id: string;
@@ -53,9 +57,6 @@ type Comment = {
   created_at: string;
 };
 
-
-
-
 type LikeUser = {
   id: string;
   display_name: string | null;
@@ -64,37 +65,103 @@ type LikeUser = {
   created_at: string;
 };
 
+// ─── Orb pulsante ────────────────────────────────────────────────────────────
+function LoadingOrb() {
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(0.5);
 
+  useEffect(() => {
+    scale.value = withRepeat(
+      withTiming(1.18, { duration: 950, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true
+    );
+    opacity.value = withRepeat(
+      withTiming(1, { duration: 950, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true
+    );
+    return () => {
+      cancelAnimation(scale);
+      cancelAnimation(opacity);
+    };
+  }, []);
 
+  const orbStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
 
-function getCategoryIcon(category: string) {
-  switch (category) {
-    case 'Mitos':
-      return <AntDesign name="gitlab" size={12} color="#9CA3AF" />;
-    case 'Leyenda':
-      return <AntDesign name="dingding" size={12} color="#9CA3AF" />;
-    case 'Urbana':
-      return <AntDesign name="heat-map" size={12} color="#9CA3AF" />;
-    default:
-      return null;
-  }
+  return (
+    <Animated.View
+      style={[
+        orbStyle,
+        {
+          width: 86,
+          height: 86,
+          borderRadius: 43,
+          backgroundColor: '#0C0C12',
+          borderWidth: 1.5,
+          borderColor: '#2A2A35',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+      ]}
+    >
+      <Ionicons name="book-outline" size={34} color="#4B4B5A" />
+    </Animated.View>
+  );
 }
 
+// ─── Pantalla elegante de carga ───────────────────────────────────────────────
+function StorySkeleton() {
+  const fadeIn = useSharedValue(0);
 
+  useEffect(() => {
+    fadeIn.value = withTiming(1, { duration: 280 });
+  }, []);
 
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fadeIn.value }));
 
+  return (
+    <Animated.View
+      style={[
+        fadeStyle,
+        {
+          flex: 1,
+          backgroundColor: '#030000',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 20,
+          paddingBottom: 60,
+        },
+      ]}
+    >
+      <LoadingOrb />
+      <View style={{ alignItems: 'center', gap: 6 }}>
+        <Text
+          style={{
+            color: '#F3F4F6',
+            fontSize: 18,
+            fontWeight: '700',
+            letterSpacing: 0.4,
+          }}
+        >
+          Cargando historia
+        </Text>
+        <Text style={{ color: '#4B4B5A', fontSize: 13 }}>Por favor espera...</Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 export default function StoryDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id, source } = useLocalSearchParams<Params>();
 
-
-
-
   const storyId = useMemo(() => id ?? String(Date.now()), [id]);
-
-
-
 
   const [likeCount, setLikeCount] = useState<number>(0);
   const [liked, setLiked] = useState<boolean>(false);
@@ -103,49 +170,27 @@ export default function StoryDetail() {
   const [initialCommentCount, setInitialCommentCount] = useState<number>(0);
   const [sendingComment, setSendingComment] = useState(false);
 
-
-
-
-  const [storyTitle, setStoryTitle] = useState<string>('Cargando...');
-  const [storyBody, setStoryBody] = useState<string>('Cargando historia...');
+  const [storyTitle, setStoryTitle] = useState<string>('');
+  const [storyBody, setStoryBody] = useState<string>('');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
-  const [authorName, setAuthorName] = useState<string>('Autor');
-  const [category, setCategory] = useState<string>('Urbana');
-
-
-
+  const [authorName, setAuthorName] = useState<string>('');
 
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-
-
-
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedComment, setSelectedComment] = useState<Comment | null>(null);
-
-
-
 
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [showDeleteStoryModal, setShowDeleteStoryModal] = useState(false);
   const [deletingStory, setDeletingStory] = useState(false);
 
-
-
-
   const [showImageZoom, setShowImageZoom] = useState(false);
-
-
-
 
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
-
-
-
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -162,8 +207,18 @@ export default function StoryDetail() {
     variant: 'info',
   });
 
+  // Fade-in del contenido cuando termina la carga
+  const contentOpacity = useSharedValue(0);
+  const contentStyle = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
 
-
+  useEffect(() => {
+    if (!loading) {
+      contentOpacity.value = withTiming(1, {
+        duration: 380,
+        easing: Easing.out(Easing.ease),
+      });
+    }
+  }, [loading]);
 
   function showNotification(
     title: string,
@@ -182,82 +237,43 @@ export default function StoryDetail() {
     setShowSheet(true);
   }
 
-
-
-
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-
-
-
   useEffect(() => {
-    const keyboardWillShow = Keyboard.addListener(
+    const show = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
-        setKeyboardHeight(e.endCoordinates.height);
-      }
+      (e) => setKeyboardHeight(e.endCoordinates.height)
     );
-
-
-
-
-    const keyboardWillHide = Keyboard.addListener(
+    const hide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setKeyboardHeight(0);
-      }
+      () => setKeyboardHeight(0)
     );
-
-
-
-
     return () => {
-      keyboardWillShow.remove();
-      keyboardWillHide.remove();
+      show.remove();
+      hide.remove();
     };
   }, []);
 
-
-
-
+  // 1️⃣ Obtiene el usuario en paralelo (no bloquea la historia)
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+    supabase.auth.getUser().then(({ data: { user } }) => {
       setUserId(user?.id || null);
-    };
-    fetchUser();
+    });
   }, []);
 
-
-
-
+  // 2️⃣ Verifica admin solo cuando userId esté listo
   useEffect(() => {
-    const checkAdmin = async () => {
-      if (!userId) return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('is_admin')
-        .eq('id', userId)
-        .single();
-      
-      setIsAdmin(data?.is_admin ?? false);
-    };
-    
-    if (userId) checkAdmin();
+    if (!userId) return;
+    supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', userId)
+      .single()
+      .then(({ data }) => setIsAdmin(data?.is_admin ?? false));
   }, [userId]);
 
-
-
-
+  // 3️⃣ Carga la historia inmediatamente, sin esperar userId
   useEffect(() => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-
-
-
-
     const loadStory = async () => {
       try {
         const { data, error } = await supabase
@@ -269,59 +285,50 @@ export default function StoryDetail() {
             cover_url,
             likes_count,
             comments_count,
-            author_name,
             author_id,
-            category
+            profiles!stories_author_id_fkey ( display_name )
           `)
           .eq('id', storyId)
           .maybeSingle();
 
-
-
-
         if (!error && data) {
+          const profile = Array.isArray(data.profiles)
+            ? data.profiles[0]
+            : (data.profiles ?? null);
+
           setStoryTitle(data.title || 'Historia');
           setStoryBody(data.body || 'Sin contenido.');
           setStoryCover(data.cover_url || undefined);
-          setAuthorName(data.author_name || 'Autor');
+          setAuthorName(profile?.display_name?.trim() || '');
           setLikeCount(data.likes_count || 0);
           setInitialCommentCount(data.comments_count || 0);
           setStoryAuthorId(data.author_id || null);
-          setCategory(data.category || 'Urbana');
-
-
-
-
-          const { count, error: likeError } = await supabase
-            .from('story_likes')
-            .select('*', { count: 'exact', head: true })
-            .eq('story_id', storyId)
-            .eq('user_id', userId);
-
-
-
-
-          setLiked((count ?? 0) > 0);
         } else {
           setStoryTitle('Historia no encontrada');
           setStoryBody('No se pudo cargar esta historia.');
-          setAuthorName('Desconocido');
         }
       } catch (e) {
         console.error('Error loading story:', e);
+        setStoryTitle('Error');
+        setStoryBody('No se pudo cargar esta historia.');
       } finally {
         setLoading(false);
       }
     };
 
-
-
-
     loadStory();
+  }, [storyId]);
+
+  // 4️⃣ Verifica si el usuario dio like (solo cuando ya tenemos userId)
+  useEffect(() => {
+    if (!userId) return;
+    supabase
+      .from('story_likes')
+      .select('*', { count: 'exact', head: true })
+      .eq('story_id', storyId)
+      .eq('user_id', userId)
+      .then(({ count }) => setLiked((count ?? 0) > 0));
   }, [storyId, userId]);
-
-
-
 
   const fetchComments = useCallback(async () => {
     const { data: rows } = await supabase
@@ -330,16 +337,10 @@ export default function StoryDetail() {
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
-
-
-
     if (!rows) {
       setCommentList([]);
       return;
     }
-
-
-
 
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
     const { data: profiles } = await supabase
@@ -347,18 +348,10 @@ export default function StoryDetail() {
       .select('id, display_name, avatar_url, is_admin, created_at')
       .in('id', userIds);
 
-
-
-
-    const map = new Map(profiles?.map(p => [p.id, p]) ?? []);
-
-
-
+    const map = new Map(profiles?.map((p) => [p.id, p]) ?? []);
 
     const comments = rows.map((c: any) => {
       const profile = map.get(c.user_id);
-      const isEarlyUser = new Date(profile?.created_at || '').getTime() < new Date('2026-01-01').getTime();
-      
       return {
         id: c.id,
         userId: c.user_id,
@@ -371,27 +364,16 @@ export default function StoryDetail() {
       };
     });
 
-
-
-
     setCommentList(comments);
   }, [storyId]);
-
-
-
 
   useEffect(() => {
     fetchComments();
   }, [storyId, fetchComments]);
 
-
-
-
   const handleShowLikes = async () => {
     setShowLikesModal(true);
     setLoadingLikes(true);
-
-
     try {
       const { data: likes, error } = await supabase
         .from('story_likes')
@@ -407,9 +389,7 @@ export default function StoryDetail() {
         `)
         .eq('story_id', storyId);
 
-
       if (error) throw error;
-
 
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
         id: like.profiles.id,
@@ -419,7 +399,6 @@ export default function StoryDetail() {
         created_at: like.profiles.created_at,
       }));
 
-
       setLikeUsers(users);
     } catch (e: any) {
       console.error('Error cargando likes:', e);
@@ -428,96 +407,60 @@ export default function StoryDetail() {
     }
   };
 
-
-
-
   async function handleDeleteComment(commentId: string) {
     try {
-      
       const { error } = await supabase
         .from('story_comments')
         .delete()
         .eq('id', commentId);
-      
+
       if (error) {
-        console.error('❌ Error borrando:', error);
         showNotification('Error', 'No se pudo borrar el comentario', 'error');
         setShowDeleteModal(false);
         return;
       }
-      
-      setCommentList(prev => prev.filter(c => c.id !== commentId));
+
+      setCommentList((prev) => prev.filter((c) => c.id !== commentId));
       setShowDeleteModal(false);
       showNotification('Listo', 'Comentario eliminado', 'info');
-    } catch (err) {
-      console.error('❌ Error:', err);
+    } catch {
       showNotification('Error', 'No se pudo borrar el comentario', 'error');
       setShowDeleteModal(false);
     }
   }
 
-
-
-
   function confirmDelete(comment: Comment) {
-    const canDelete = userId === comment.userId || userId === storyAuthorId || isAdmin;
-    
+    const canDelete =
+      userId === comment.userId || userId === storyAuthorId || isAdmin;
     if (!canDelete) {
       showNotification('Sin permiso', 'No puedes borrar este comentario', 'error');
       return;
     }
-    
     setSelectedComment(comment);
     setShowDeleteModal(true);
   }
 
-
-
-
   async function toggleLike() {
     if (!userId) {
-      showNotification(
-        'Sesión requerida',
-        'Debes iniciar sesión para dar like a las historias.',
-        'info'
-      );
+      showNotification('Sesión requerida', 'Debes iniciar sesión para dar like.', 'info');
       return;
     }
-
-
-
-
     const newLiked = !liked;
     setLiked(newLiked);
-    setLikeCount(prev => (newLiked ? prev + 1 : prev - 1));
-
-
-
-
+    setLikeCount((prev) => (newLiked ? prev + 1 : prev - 1));
     try {
-      if (liked) {
-        await unlike(storyId);
-      } else {
-        await like(storyId);
-      }
-    } catch (error) {
+      if (liked) await unlike(storyId);
+      else await like(storyId);
+    } catch {
       setLiked(!newLiked);
-      setLikeCount(prev => (newLiked ? prev - 1 : prev + 1));
-      console.error('Error toggling like:', error);
+      setLikeCount((prev) => (newLiked ? prev - 1 : prev + 1));
       showNotification('Error', 'No se pudo procesar el like', 'error');
     }
   }
 
-
-
-
   async function addComment() {
     const text = commentInput.trim();
     if (!text || sendingComment) return;
-
-
-
-
     setSendingComment(true);
     try {
       await addCommentService(storyId, text);
@@ -525,247 +468,215 @@ export default function StoryDetail() {
       setCommentInput('');
       Keyboard.dismiss();
     } catch {
-      showNotification(
-        'Error',
-        'No se pudo guardar el comentario. Intenta de nuevo.',
-        'error'
-      );
+      showNotification('Error', 'No se pudo guardar el comentario.', 'error');
     } finally {
       setSendingComment(false);
     }
   }
-
-
-
 
   function handleBack() {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
   }
 
-
-
-
   async function handleDeleteStory() {
     if (!userId || deletingStory) return;
-    
     const canDelete = userId === storyAuthorId || isAdmin;
     if (!canDelete) {
-      showNotification(
-        'Sin permiso',
-        'No tienes permiso para eliminar esta historia.',
-        'error'
-      );
+      showNotification('Sin permiso', 'No tienes permiso para eliminar esta historia.', 'error');
       return;
     }
-
-
-
-
     setDeletingStory(true);
     try {
-      const { error } = await supabase
-        .from('stories')
-        .delete()
-        .eq('id', storyId);
-      
+      const { error } = await supabase.from('stories').delete().eq('id', storyId);
       if (error) throw error;
-      
       setShowDeleteStoryModal(false);
-      showNotification(
-        'Listo',
-        'La historia ha sido eliminada correctamente.',
-        'info',
-        'Cerrar',
-        handleBack
-      );
-    } catch (error) {
-      showNotification(
-        'Error',
-        'No se pudo eliminar la historia. Intenta de nuevo.',
-        'error'
-      );
+      showNotification('Listo', 'La historia ha sido eliminada.', 'info', 'Cerrar', handleBack);
+    } catch {
+      showNotification('Error', 'No se pudo eliminar la historia.', 'error');
       setDeletingStory(false);
       setShowDeleteStoryModal(false);
     }
   }
 
-
-
-
   const displayCommentCount = commentList.length || initialCommentCount;
-
-
-
-
-  if (loading) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#F3F4F6" />
-      </SafeAreaView>
-    );
-  }
-
-
-
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#030000ff' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#030000' }}>
+
+        {/* Header — siempre visible */}
         <View style={[s.header, { paddingTop: insets.top }]}>
           <TouchableOpacity onPress={handleBack} hitSlop={10} style={s.backBtn}>
             <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
           </TouchableOpacity>
-          <Text style={s.headerTitle}>{storyTitle}</Text>
-          
-          {(userId === storyAuthorId || isAdmin) && (
-            <TouchableOpacity 
-              onPress={() => setShowDeleteStoryModal(true)} 
+
+          {loading ? (
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <View style={{ width: 140, height: 14, borderRadius: 6, backgroundColor: '#1F1F27' }} />
+            </View>
+          ) : (
+            <Text style={s.headerTitle} numberOfLines={1}>{storyTitle}</Text>
+          )}
+
+          {!loading && (userId === storyAuthorId || isAdmin) ? (
+            <TouchableOpacity
+              onPress={() => setShowDeleteStoryModal(true)}
               hitSlop={10}
               style={s.deleteBtn}
             >
               <Ionicons name="trash-outline" size={22} color="#ef4444" />
             </TouchableOpacity>
+          ) : (
+            <View style={{ width: 32 }} />
           )}
-          
-          {!(userId === storyAuthorId || isAdmin) && <View style={{ width: 32 }} />}
         </View>
 
-
-
-
         <View style={{ flex: 1 }}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={[s.content, { paddingBottom: 80 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {storyCover && (
-              <TouchableOpacity 
-                activeOpacity={0.9}
-                onPress={() => setShowImageZoom(true)}
+          {/* Pantalla de carga elegante */}
+          {loading ? (
+            <StorySkeleton />
+          ) : (
+            <Animated.View style={[{ flex: 1 }, contentStyle]}>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={[s.content, { paddingBottom: 80 }]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
               >
-                <Image source={{ uri: storyCover }} style={s.coverImg} />
-              </TouchableOpacity>
-            )}
-
-
-
-
-            <Text style={s.bodyText}>{storyBody}</Text>
-            
-            <View style={s.authorRow}>
-              <Text style={s.author}>— {authorName}</Text>
-              <View style={s.categoryBadge}>
-                {getCategoryIcon(category)}
-                <Text style={s.categoryText}>{category}</Text>
-              </View>
-            </View>
-
-
-
-
-            <View style={s.footerRow}>
-              {/* Icono Like */}
-              <TouchableOpacity 
-                style={s.meta} 
-                onPress={toggleLike} 
-                activeOpacity={0.8}
-                disabled={!userId}
-              >
-                <Ionicons 
-                  name={liked ? 'heart' : 'heart-outline'} 
-                  size={20} 
-                  color={liked ? '#ef4444' : '#F3F4F6'} 
-                />
-              </TouchableOpacity>
-
-              {/* Contador Like Clickeable */}
-              <TouchableOpacity 
-                style={[s.metaText, { marginLeft: 4 }]}
-                onPress={handleShowLikes}
-                activeOpacity={0.8}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={[s.metaTxt, liked && { color: '#ef4444' }]}>
-                  {likeCount} {likeCount === 1 ? 'Like' : 'Likes'}
-                </Text>
-              </TouchableOpacity>
-
-              {/* Icono Comentarios */}
-              <View style={[s.meta, { marginLeft: 16 }]}>
-                <Ionicons name="chatbox-outline" size={20} color="#F3F4F6" />
-              </View>
-
-              {/* Contador Comentarios */}
-              <View style={[s.metaText, { marginLeft: 4 }]}>
-                <Text style={s.metaTxt}>
-                  {displayCommentCount} {displayCommentCount === 1 ? 'Comentario' : 'Comentarios'}
-                </Text>
-              </View>
-            </View>
-
-
-
-
-            <View style={{ gap: 8, marginTop: 4 }}>
-              {commentList.map(c => {
-                const canDeleteThisComment = userId === c.userId || userId === storyAuthorId || isAdmin;
-                const isEarlyUser = new Date(c.created_at) < new Date('2026-01-01');
-                
-                return (
-                  <TouchableOpacity
-                    key={c.id}
-                    onLongPress={() => canDeleteThisComment && confirmDelete(c)}
-                    delayLongPress={400}
-                    activeOpacity={0.9}
-                    disabled={!canDeleteThisComment}
-                  >
-                    <View style={[s.commentCard, !canDeleteThisComment && { opacity: 0.6 }]}>
-                      <View style={s.commentHeader}>
-                        {c.avatarUrl ? (
-                          <Image source={{ uri: c.avatarUrl }} style={s.commentAvatar} />
-                        ) : (
-                          <View style={[s.commentAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
-                            <Ionicons name="person-outline" size={14} color="#9CA3AF" />
-                          </View>
-                        )}
-                        <Link href={{ pathname: '/profile/[id]', params: { id: c.userId } }} asChild>
-                          <TouchableOpacity>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                              <Text style={s.commentAuthor}>{c.author}</Text>
-                              {c.is_admin && <MaterialIcons name="verified" size={12} color="#FFD700" />}
-                              {isEarlyUser && <MaterialIcons name="verified" size={12} color="#06B6D4" />}
-                            </View>
-                          </TouchableOpacity>
-                        </Link>
-                      </View>
-                      <Text style={s.commentText}>{c.text}</Text>
-                    </View>
+                {storyCover && (
+                  <TouchableOpacity activeOpacity={0.9} onPress={() => setShowImageZoom(true)}>
+                    <Image source={{ uri: storyCover }} style={s.coverImg} />
                   </TouchableOpacity>
-                );
-              })}
-            </View>
-          </ScrollView>
+                )}
 
+                <Text style={s.bodyText}>{storyBody}</Text>
 
+                {/* Solo muestra autor si hay nombre */}
+                {authorName ? (
+                  <View style={s.authorRow}>
+                    <Text style={s.author}>— {authorName}</Text>
+                  </View>
+                ) : null}
 
+                <View style={s.footerRow}>
+                  <TouchableOpacity
+                    style={s.meta}
+                    onPress={toggleLike}
+                    activeOpacity={0.8}
+                    disabled={!userId}
+                  >
+                    <Ionicons
+                      name={liked ? 'heart' : 'heart-outline'}
+                      size={20}
+                      color={liked ? '#ef4444' : '#F3F4F6'}
+                    />
+                  </TouchableOpacity>
 
-          <View 
+                  <TouchableOpacity
+                    style={[s.metaText, { marginLeft: 4 }]}
+                    onPress={handleShowLikes}
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={[s.metaTxt, liked && { color: '#ef4444' }]}>
+                      {likeCount} {likeCount === 1 ? 'Like' : 'Likes'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={[s.meta, { marginLeft: 16 }]}>
+                    <Ionicons name="chatbox-outline" size={20} color="#F3F4F6" />
+                  </View>
+
+                  <View style={[s.metaText, { marginLeft: 4 }]}>
+                    <Text style={s.metaTxt}>
+                      {displayCommentCount}{' '}
+                      {displayCommentCount === 1 ? 'Comentario' : 'Comentarios'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ gap: 8, marginTop: 4 }}>
+                  {commentList.map((c) => {
+                    const canDeleteThisComment =
+                      userId === c.userId || userId === storyAuthorId || isAdmin;
+                    const isEarlyUser = new Date(c.created_at) < new Date('2026-01-01');
+
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        onLongPress={() => canDeleteThisComment && confirmDelete(c)}
+                        delayLongPress={400}
+                        activeOpacity={0.9}
+                        disabled={!canDeleteThisComment}
+                      >
+                        <View
+                          style={[
+                            s.commentCard,
+                            !canDeleteThisComment && { opacity: 0.6 },
+                          ]}
+                        >
+                          <View style={s.commentHeader}>
+                            {c.avatarUrl ? (
+                              <Image
+                                source={{ uri: c.avatarUrl }}
+                                style={s.commentAvatar}
+                              />
+                            ) : (
+                              <View
+                                style={[
+                                  s.commentAvatar,
+                                  { alignItems: 'center', justifyContent: 'center' },
+                                ]}
+                              >
+                                <Ionicons name="person-outline" size={14} color="#9CA3AF" />
+                              </View>
+                            )}
+                            <Link
+                              href={{ pathname: '/profile/[id]', params: { id: c.userId } }}
+                              asChild
+                            >
+                              <TouchableOpacity>
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                >
+                                  <Text style={s.commentAuthor}>{c.author}</Text>
+                                  {c.is_admin && (
+                                    <MaterialIcons name="verified" size={12} color="#FFD700" />
+                                  )}
+                                  {isEarlyUser && (
+                                    <MaterialIcons name="verified" size={12} color="#06B6D4" />
+                                  )}
+                                </View>
+                              </TouchableOpacity>
+                            </Link>
+                          </View>
+                          <Text style={s.commentText}>{c.text}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            </Animated.View>
+          )}
+
+          {/* Barra de comentarios — siempre visible */}
+          <View
             style={[
-              s.inputBar, 
-              { 
+              s.inputBar,
+              {
                 marginBottom: keyboardHeight,
-                paddingBottom: keyboardHeight === 0 ? (insets.bottom > 0 ? insets.bottom : 10) : 10
-              }, 
-              sendingComment && { opacity: 0.6 }
+                paddingBottom:
+                  keyboardHeight === 0 ? (insets.bottom > 0 ? insets.bottom : 10) : 10,
+              },
+              sendingComment && { opacity: 0.6 },
             ]}
           >
             <FontAwesome5 name="comment-alt" size={18} color="#A1A1AA" />
             <TextInput
               placeholder="Agrega un comentario"
-              placeholderTextColor="#dbdbdbff"
+              placeholderTextColor="#dbdbdb"
               style={s.input}
               value={commentInput}
               onChangeText={setCommentInput}
@@ -783,17 +694,12 @@ export default function StoryDetail() {
           </View>
         </View>
 
-
-
-
-        <ImageZoomModal 
+        {/* Modales */}
+        <ImageZoomModal
           visible={showImageZoom}
           imageUri={storyCover || ''}
           onClose={() => setShowImageZoom(false)}
         />
-
-
-
 
         <Modal visible={showDeleteModal} transparent animationType="fade">
           <View style={s.modalOverlay}>
@@ -802,10 +708,6 @@ export default function StoryDetail() {
               <Text style={s.modalText}>
                 ¿Seguro que quieres eliminar este comentario?
               </Text>
-
-
-
-
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteModal(false)}
@@ -813,12 +715,10 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
-
-
-
-
                 <TouchableOpacity
-                  onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
+                  onPress={() =>
+                    selectedComment && handleDeleteComment(selectedComment.id)
+                  }
                   style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
                 >
                   <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
@@ -828,24 +728,16 @@ export default function StoryDetail() {
           </View>
         </Modal>
 
-
-
-
         <Modal visible={showDeleteStoryModal} transparent animationType="fade">
           <View style={s.modalOverlay}>
             <View style={s.modalBox}>
               <View style={s.iconWrapDelete}>
                 <Ionicons name="warning" size={28} color="#ef4444" />
               </View>
-              
               <Text style={s.modalTitle}>Eliminar historia</Text>
               <Text style={s.modalText}>
-                Esta acción no se puede deshacer. ¿Estás seguro de que quieres eliminar esta historia?
+                Esta acción no se puede deshacer. ¿Estás seguro?
               </Text>
-
-
-
-
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteStoryModal(false)}
@@ -854,10 +746,6 @@ export default function StoryDetail() {
                 >
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
-
-
-
-
                 <TouchableOpacity
                   onPress={handleDeleteStory}
                   style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
@@ -874,10 +762,6 @@ export default function StoryDetail() {
           </View>
         </Modal>
 
-
-
-
-        {/* Modal de likes */}
         <Modal visible={showLikesModal} transparent animationType="fade">
           <View style={s.likesOverlay}>
             <TouchableOpacity
@@ -887,14 +771,10 @@ export default function StoryDetail() {
             <View style={s.likesSheet}>
               <View style={s.likesHeader}>
                 <Text style={s.likesTitle}>Les dio like</Text>
-                <TouchableOpacity
-                  onPress={() => setShowLikesModal(false)}
-                  hitSlop={10}
-                >
+                <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
                   <Ionicons name="close" size={24} color="#F3F4F6" />
                 </TouchableOpacity>
               </View>
-
 
               {loadingLikes ? (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -913,26 +793,57 @@ export default function StoryDetail() {
                   renderItem={({ item: user }) => {
                     const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
                     return (
-                      <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
+                      <Link
+                        href={{ pathname: '/profile/[id]', params: { id: user.id } }}
+                        asChild
+                      >
                         <TouchableOpacity
                           style={s.likeUserCard}
-                          onPress={() => {
-                            setShowLikesModal(false);
-                          }}
+                          onPress={() => setShowLikesModal(false)}
                         >
                           {user.avatar_url ? (
-                            <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
+                            <Image
+                              source={{ uri: user.avatar_url }}
+                              style={s.likeUserAvatar}
+                            />
                           ) : (
-                            <View style={[s.likeUserAvatar, { backgroundColor: '#0F1016', alignItems: 'center', justifyContent: 'center' }]}>
+                            <View
+                              style={[
+                                s.likeUserAvatar,
+                                {
+                                  backgroundColor: '#0F1016',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                },
+                              ]}
+                            >
                               <Ionicons name="person-outline" size={16} color="#9CA3AF" />
                             </View>
                           )}
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                            <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                            {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
-                            {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 4,
+                              flex: 1,
+                            }}
+                          >
+                            <Text style={s.likeUserName}>
+                              {user.display_name || 'Usuario'}
+                            </Text>
+                            {user.is_admin && (
+                              <MaterialIcons name="verified" size={14} color="#FFD700" />
+                            )}
+                            {isUserEarly && (
+                              <MaterialIcons name="verified" size={14} color="#06B6D4" />
+                            )}
                           </View>
-                          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color="#9CA3AF"
+                            style={{ marginLeft: 'auto' }}
+                          />
                         </TouchableOpacity>
                       </Link>
                     );
@@ -942,9 +853,6 @@ export default function StoryDetail() {
             </View>
           </View>
         </Modal>
-
-
-
 
         <Modal
           visible={showSheet}
@@ -968,16 +876,8 @@ export default function StoryDetail() {
                   color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
                 />
               </View>
-
-
-
-
               <Text style={s.sheetTitle}>{sheet.title}</Text>
               <Text style={s.sheetMsg}>{sheet.message}</Text>
-
-
-
-
               <View style={s.sheetActions}>
                 <TouchableOpacity
                   style={[s.sheetBtn, s.sheetBtnPrimary]}
@@ -994,30 +894,22 @@ export default function StoryDetail() {
   );
 }
 
-
-
-
-function ImageZoomModal({ 
-  visible, 
-  imageUri, 
-  onClose 
-}: { 
-  visible: boolean; 
-  imageUri: string; 
-  onClose: () => void 
+// ─── ImageZoomModal ───────────────────────────────────────────────────────────
+function ImageZoomModal({
+  visible,
+  imageUri,
+  onClose,
+}: {
+  visible: boolean;
+  imageUri: string;
+  onClose: () => void;
 }) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
-
-
-
   const doubleTapRef = useCallback((ref: any) => ref, []);
-
-
-
 
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
@@ -1033,15 +925,9 @@ function ImageZoomModal({
     }
   };
 
-
-
-
   const onPinch = (event: any) => {
     scale.value = baseScale.value * event.nativeEvent.scale;
   };
-
-
-
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
@@ -1053,9 +939,6 @@ function ImageZoomModal({
     }
   };
 
-
-
-
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -1064,36 +947,22 @@ function ImageZoomModal({
     ],
   }));
 
-
-
-
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={s.zoomOverlay}>
-        <TouchableOpacity 
-          style={s.zoomCloseBtn} 
-          onPress={onClose}
-          hitSlop={10}
-        >
+        <TouchableOpacity style={s.zoomCloseBtn} onPress={onClose} hitSlop={10}>
           <Ionicons name="close-circle" size={40} color="#fff" />
         </TouchableOpacity>
-
-
-
-
         <TapGestureHandler
           ref={doubleTapRef}
           onHandlerStateChange={onDoubleTap}
           numberOfTaps={2}
         >
           <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <PinchGestureHandler
-              onGestureEvent={onPinch}
-              onEnded={onPinchEnd}
-            >
+            <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
-                <Image 
-                  source={{ uri: imageUri }} 
+                <Image
+                  source={{ uri: imageUri }}
                   style={s.zoomImage}
                   resizeMode="contain"
                 />
@@ -1106,45 +975,31 @@ function ImageZoomModal({
   );
 }
 
-
-
-
+// ─── Estilos ──────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#030000ff',
+    backgroundColor: '#030000',
     borderBottomWidth: 1,
-    borderBottomColor: '#000000ff',
+    borderBottomColor: '#000',
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
   backBtn: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { flex: 1, textAlign: 'center', color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    color: '#F3F4F6',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  deleteBtn: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
   content: { paddingHorizontal: 16, paddingTop: 10, gap: 12 },
   coverImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12 },
   bodyText: { color: '#E5E7EB', lineHeight: 22, fontSize: 15 },
-  authorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
+  authorRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   author: { color: '#C9C9D1', fontStyle: 'italic' },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#1a1a1aff',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  categoryText: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    fontWeight: '600',
-  },
   footerRow: {
     marginTop: 8,
     flexDirection: 'row',
@@ -1157,9 +1012,9 @@ const s = StyleSheet.create({
   metaText: { flexDirection: 'row', alignItems: 'center' },
   metaTxt: { color: '#F3F4F6', fontSize: 14, fontWeight: '600' },
   commentCard: {
-    backgroundColor: '#010102ff',
+    backgroundColor: '#010102',
     borderWidth: 1,
-    borderColor: '#181818ff',
+    borderColor: '#181818',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1174,14 +1029,14 @@ const s = StyleSheet.create({
     borderColor: '#1F1F27',
   },
   commentAuthor: { color: '#fff', fontWeight: '600' },
-  commentText: { color: '#d0d1d1ff' },
+  commentText: { color: '#d0d1d1' },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 12,
     paddingTop: 10,
-    backgroundColor: '#030000ff',
+    backgroundColor: '#030000',
     borderTopWidth: 1,
     borderTopColor: '#1F1F27',
   },
@@ -1215,12 +1070,6 @@ const s = StyleSheet.create({
   modalButtons: { flexDirection: 'row', gap: 10 },
   modalBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
   modalBtnText: { color: '#f3f4f6', fontSize: 15, fontWeight: '600' },
-  deleteBtn: { 
-    width: 32, 
-    height: 32, 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
   iconWrapDelete: {
     width: 50,
     height: 50,
@@ -1238,16 +1087,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  zoomCloseBtn: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-  },
-  zoomImage: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT * 0.7,
-  },
+  zoomCloseBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
+  zoomImage: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.7 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -1273,22 +1114,13 @@ const s = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 8,
   },
-  sheetTitle: { 
-    color: '#F3F4F6', 
-    fontWeight: '700', 
-    fontSize: 18, 
-    textAlign: 'center' 
-  },
-  sheetMsg: { 
-    color: '#D1D5DB', 
-    textAlign: 'center', 
-    marginTop: 6 
-  },
-  sheetActions: { 
-    flexDirection: 'row', 
-    gap: 10, 
-    marginTop: 16, 
-    justifyContent: 'center' 
+  sheetTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, textAlign: 'center' },
+  sheetMsg: { color: '#D1D5DB', textAlign: 'center', marginTop: 6 },
+  sheetActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    justifyContent: 'center',
   },
   sheetBtn: {
     height: 44,
@@ -1298,30 +1130,16 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  sheetBtnPrimary: { 
-    backgroundColor: '#1F2937', 
-    borderColor: '#27272A' 
-  },
-  sheetBtnText: { 
-    fontWeight: '600', 
-    color: '#fff' 
-  },
-  likesOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  likeBackdrop: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-  },
+  sheetBtnPrimary: { backgroundColor: '#1F2937', borderColor: '#27272A' },
+  sheetBtnText: { fontWeight: '600', color: '#fff' },
+  likesOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  likeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
   likesSheet: {
-    backgroundColor: '#010102ff',
+    backgroundColor: '#010102',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderTopWidth: 1,
-    borderColor: '#181818ff',
+    borderColor: '#181818',
     maxHeight: '75%',
     zIndex: 10,
   },
@@ -1332,20 +1150,16 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#181818ff',
+    borderBottomColor: '#181818',
   },
-  likesTitle: {
-    color: '#F3F4F6',
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  likesTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
   likeUserCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#010102ff',
+    backgroundColor: '#010102',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#181818ff',
+    borderColor: '#181818',
     padding: 12,
     gap: 12,
   },
@@ -1356,8 +1170,5 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2C2C33',
   },
-  likeUserName: {
-    color: '#F3F4F6',
-    fontWeight: '600',
-  },
+  likeUserName: { color: '#F3F4F6', fontWeight: '600' },
 });

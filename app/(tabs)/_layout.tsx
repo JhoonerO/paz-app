@@ -1,111 +1,101 @@
 // app/(tabs)/_layout.tsx
-import { Tabs, Link } from 'expo-router';
-import { Pressable, View, Text } from 'react-native';
+import { Tabs, Link, useNavigation, useRouter, usePathname } from 'expo-router';
+import {
+  Pressable,
+  View,
+  Text,
+  useWindowDimensions,
+  TouchableOpacity,
+  StyleSheet,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import Feather from '@expo/vector-icons/Feather';
-import AntDesign from '@expo/vector-icons/AntDesign';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque'; // 👈 LÍNEA NUEVA
+import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
+// ✅ usePathname aislado aquí — cuando cambia el path, solo este componente
+//    re-renderiza, NO TabsLayout ni Tabs → sin rebote en la animación
+function FloatingActionButton({
+  tabBarHeight,
+  fabSize,
+  fabRight,
+}: {
+  tabBarHeight: number;
+  fabSize: number;
+  fabRight: number;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const fabLock = useRef(false);
 
-export default function TabsLayout() {
-  const [unreadCount, setUnreadCount] = useState(0);
-  const insets = useSafeAreaInsets();
+  const hideFab =
+    pathname === '/messages' ||
+    pathname.startsWith('/messages/') ||
+    pathname === '/create' ||
+    pathname.startsWith('/create/');
 
-  // 👇 LÍNEAS NUEVAS
-  const [fontsLoaded] = useFonts({
-    Risque_400Regular,
-  });
+  return (
+    <View
+      pointerEvents={hideFab ? 'none' : 'auto'}
+      style={[
+        s.fab,
+        {
+          width: fabSize,
+          height: fabSize,
+          borderRadius: fabSize / 2,
+          bottom: tabBarHeight + 12,
+          right: fabRight,
+          opacity: hideFab ? 0 : 1,
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+        onPress={() => {
+          if (fabLock.current || hideFab) return;
+          fabLock.current = true;
+          router.push('/(tabs)/create');
+          setTimeout(() => { fabLock.current = false; }, 600);
+        }}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="add" size={24} color="#F3F4F6" />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
-
-  const loadUnread = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-
-    const { count, error } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .eq('read', false);
-
-
-    if (!error && typeof count === 'number') setUnreadCount(count);
-  };
-
-
-  useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-
-
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-
-      await loadUnread();
-
-
-      channel = supabase
-        .channel('notifications-counter')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${user.id}`,
-          },
-          () => loadUnread()
-        )
-        .subscribe();
-    };
-
-
-    init();
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, []);
-
-
-  const HeaderTitle = () => (
+// ✅ Fuera del layout — no se recrean en cada render
+function HeaderTitle({ width }: { width: number }) {
+  return (
     <Text
+      adjustsFontSizeToFit
+      numberOfLines={1}
       style={{
         fontFamily: 'Risque_400Regular',
-        fontSize: 22,
+        fontSize: width * 0.055,
         color: '#F3F4F6',
-        letterSpacing: 0.4,
+        letterSpacing: 0.2,
+        minWidth: 80,
+        textAlign: 'center',
       }}
     >
       U-PAZ
     </Text>
   );
+}
 
-
-  const HeaderRight = () => (
+function HeaderRight({ unreadCount }: { unreadCount: number }) {
+  return (
     <Link href="/notifications" asChild>
       <Pressable hitSlop={10} style={{ paddingHorizontal: 12 }}>
         <View style={{ position: 'relative' }}>
           <Ionicons name="notifications-sharp" size={24} color="white" />
           {unreadCount > 0 && (
-            <View
-              style={{
-                position: 'absolute',
-                top: -6,
-                right: -6,
-                backgroundColor: '#ef4444',
-                borderRadius: 9,
-                minWidth: 18,
-                height: 18,
-                paddingHorizontal: 4,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+            <View style={s.badge}>
+              <Text style={s.badgeTxt}>
                 {unreadCount > 9 ? '9+' : unreadCount}
               </Text>
             </View>
@@ -114,78 +104,230 @@ export default function TabsLayout() {
       </Pressable>
     </Link>
   );
+}
 
+export default function TabsLayout() {
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const navigation = useNavigation();
+
+  const [fontsLoaded] = useFonts({ Risque_400Regular });
+
+  const TAB_BAR_HEIGHT = 50 + insets.bottom;
+  const FAB_SIZE = 46;
+  const fabRight = width / 6 - FAB_SIZE / 2;
+
+  // ✅ Memoizados para que Tabs no los vea como props nuevos en cada render
+  const headerTitleFn = useCallback(() => <HeaderTitle width={width} />, [width]);
+  const headerRightFn = useCallback(
+    () => <HeaderRight unreadCount={unreadCount} />,
+    [unreadCount]
+  );
+
+  const loadUnread = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('read', false);
+    if (!error && typeof count === 'number') setUnreadCount(count);
+  };
+
+  const loadUnreadMessages = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: convs } = await supabase
+      .from('conversations')
+      .select('id')
+      .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`);
+    if (!convs || convs.length === 0) return;
+    const { count } = await supabase
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .in('conversation_id', convs.map((c: any) => c.id))
+      .eq('read', false)
+      .neq('sender_id', user.id);
+    setUnreadMessages(count ?? 0);
+  };
+
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let msgChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await loadUnread();
+      await loadUnreadMessages();
+
+      channel = supabase
+        .channel('notifications-counter')
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+          () => loadUnread()
+        ).subscribe();
+
+      msgChannel = supabase
+        .channel('messages-counter')
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'messages' },
+          () => loadUnreadMessages()
+        ).subscribe();
+    };
+
+    init();
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+      if (msgChannel) supabase.removeChannel(msgChannel);
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      loadUnread();
+      loadUnreadMessages();
+    });
+    return unsub;
+  }, [navigation]);
 
   return (
-    <Tabs
-      screenOptions={{
-        headerStyle: { backgroundColor: '#000000ff' },
-        headerTintColor: '#F3F4F6',
-        headerTitle: () => <HeaderTitle />,
-        headerTitleAlign: 'center',
-        headerRight: () => <HeaderRight />,
-
-
-        // ✅ Animación estilo "push" entre tabs
-        animation: 'shift',
-        transitionSpec: {
-          animation: 'timing',
-          config: { duration: 260 },
-        },
-
-
-        tabBarStyle: {
-          backgroundColor: '#000000ff',
-          borderTopColor: '#181818ff',
-          height: 50 + insets.bottom,
-          paddingBottom: insets.bottom,
-          paddingTop: 8,
-        },
-        tabBarActiveTintColor: '#F3F4F6',
-        tabBarInactiveTintColor: '#A1A1AA',
-        tabBarShowLabel: false,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Inicio',
-          headerLeft: () => (
-            <Link href="/search" asChild>
-              <Pressable hitSlop={10} style={{ paddingHorizontal: 16 }}>
-                <Ionicons name="search" size={24} color="#F3F4F6" />
-              </Pressable>
-            </Link>
-          ),
-          tabBarIcon: ({ color, size }) => <Feather name="home" size={size} color={color} />,
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={{
+          headerStyle: { backgroundColor: '#000000ff' },
+          headerTintColor: '#F3F4F6',
+          headerTitle: headerTitleFn,
+          headerTitleAlign: 'center',
+          headerRight: headerRightFn,
+          animation: 'shift',
+          transitionSpec: {
+            animation: 'timing',
+            config: { duration: 260 },
+          },
+          tabBarStyle: {
+            backgroundColor: '#000000ff',
+            borderTopColor: '#181818ff',
+            height: TAB_BAR_HEIGHT,
+            paddingBottom: insets.bottom,
+            paddingTop: 8,
+          },
+          tabBarActiveTintColor: '#F3F4F6',
+          tabBarInactiveTintColor: '#A1A1AA',
+          tabBarShowLabel: false,
         }}
+      >
+        {/* Feed */}
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Inicio',
+            headerLeft: () => (
+              <Link href="/search" asChild>
+                <Pressable hitSlop={10} style={{ paddingHorizontal: 16 }}>
+                  <Ionicons name="search" size={24} color="#F3F4F6" />
+                </Pressable>
+              </Link>
+            ),
+            tabBarIcon: ({ color, size }) => (
+              <Feather name="home" size={size} color={color} />
+            ),
+          }}
+        />
+
+        {/* Mensajes */}
+        <Tabs.Screen
+          name="messages"
+          options={{
+            title: 'Mensajes',
+            headerLeft: () => (
+              <Link href="/search" asChild>
+                <Pressable hitSlop={10} style={{ paddingHorizontal: 16 }}>
+                  <Ionicons name="search" size={24} color="#F3F4F6" />
+                </Pressable>
+              </Link>
+            ),
+            tabBarIcon: ({ color, size }) => (
+              <View>
+                <Ionicons name="chatbox-outline" size={size} color={color} />
+                {unreadMessages > 0 && (
+                  <View style={s.badge}>
+                    <Text style={s.badgeTxt}>
+                      {unreadMessages > 9 ? '9+' : unreadMessages}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ),
+          }}
+        />
+
+        {/* Perfil */}
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Perfil',
+            headerLeft: () => <View style={{ width: 44, marginLeft: 12 }} />,
+            tabBarIcon: ({ color, size }) => (
+              <Feather name="user" size={size} color={color} />
+            ),
+          }}
+        />
+
+        {/* Crear — oculto de la barra, accesible via FAB */}
+        <Tabs.Screen
+          name="create"
+          options={{
+            href: null,
+            headerLeft: () => (
+              <Link href="/search" asChild>
+                <Pressable hitSlop={10} style={{ paddingHorizontal: 16 }}>
+                  <Ionicons name="search" size={24} color="#F3F4F6" />
+                </Pressable>
+              </Link>
+            ),
+          }}
+        />
+      </Tabs>
+
+      {/* ✅ FAB como componente aislado — su re-render no afecta a Tabs */}
+      <FloatingActionButton
+        tabBarHeight={TAB_BAR_HEIGHT}
+        fabSize={FAB_SIZE}
+        fabRight={fabRight}
       />
-
-
-      <Tabs.Screen
-        name="create"
-        options={{
-          title: 'Crear',
-          headerLeft: () => (
-            <Link href="/search" asChild>
-              <Pressable hitSlop={10} style={{ paddingHorizontal: 16 }}>
-                <Ionicons name="search" size={24} color="#F3F4F6" />
-              </Pressable>
-            </Link>
-          ),
-          tabBarIcon: ({ color, size }) => <AntDesign name="plus-square" size={size} color={color} />,
-        }}
-      />
-
-
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Perfil',
-          headerLeft: () => <View style={{ width: 44, marginLeft: 12 }} />,
-          tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} />,
-        }}
-      />
-    </Tabs>
+    </View>
   );
 }
+
+const s = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#ef4444',
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeTxt: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  fab: {
+    position: 'absolute',
+    backgroundColor: '#1f1f1fff',
+    borderWidth: 1,
+    borderColor: '#2C2C33',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+  },
+});

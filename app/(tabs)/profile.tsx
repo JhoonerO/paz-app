@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,28 +11,28 @@ import {
   ScrollView,
   Dimensions,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Ionicons, FontAwesome6, AntDesign } from '@expo/vector-icons';
+import { Ionicons, FontAwesome6 } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
-import * as FileSystem from 'expo-file-system';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
+  withRepeat,
+  withSequence,
   Easing,
-  FadeInRight,
 } from 'react-native-reanimated';
+
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
-
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 
 const DEFAULT_AVATARS = [
   { id: 'ardilla', name: 'Ardilla', source: require('../../imagenes_de_Perfil/ardilla.jpg'), publicPath: 'ardilla.jpg' },
@@ -47,8 +47,6 @@ const DEFAULT_AVATARS = [
   { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg'), publicPath: 'tigre.jpg' },
 ];
 
-
-
 type DBStory = {
   id: string;
   title: string;
@@ -58,15 +56,12 @@ type DBStory = {
   comments_count: number;
   created_at: string;
   author_id: string;
-  author_name: string | null;
-  category: string;
   profiles: {
     display_name: string | null;
     avatar_url: string | null;
   }[] | null;
   liked_at?: string;
 };
-
 
 type ProfileRow = {
   display_name: string | null;
@@ -76,7 +71,6 @@ type ProfileRow = {
   created_at: string;
 };
 
-
 type LikeUser = {
   id: string;
   display_name: string | null;
@@ -84,7 +78,6 @@ type LikeUser = {
   is_admin: boolean;
   created_at: string;
 };
-
 
 function getExtAndType(uri: string) {
   const ext = (uri.split('.').pop() || '').toLowerCase();
@@ -95,78 +88,115 @@ function getExtAndType(uri: string) {
   return { ext: 'jpg', type: 'image/jpeg' };
 }
 
-
-async function uriToArrayBuffer(uri: string) {  
+async function uriToArrayBuffer(uri: string) {
   const res: any = await fetch(uri);
   const ab = await res.arrayBuffer();
   return ab as ArrayBuffer;
 }
 
+const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
 
-function getCategoryIcon(category: string) {
-  switch (category) {
-    case 'Mitos':
-      return <AntDesign name="gitlab" size={12} color="#9CA3AF" />;
-    case 'Leyenda':
-      return <AntDesign name="dingding" size={12} color="#9CA3AF" />;
-    case 'Urbana':
-      return <AntDesign name="heat-map" size={12} color="#9CA3AF" />;
-    default:
-      return null;
-  }
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+function usePulse() {
+  const opacity = useSharedValue(0.3);
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 800 }),
+        withTiming(0.3, { duration: 800 })
+      ),
+      -1
+    );
+  }, []);
+  return useAnimatedStyle(() => ({ opacity: opacity.value }));
 }
 
+function ProfileHeaderSkeleton() {
+  const style = usePulse();
+  return (
+    <Animated.View style={[sk.headerWrap, style]}>
+      <View style={sk.avatar} />
+      <View style={{ flex: 1, gap: 10 }}>
+        <View style={sk.nameLine} />
+        <View style={sk.subLine} />
+      </View>
+    </Animated.View>
+  );
+}
 
+function TabsSkeleton() {
+  const style = usePulse();
+  return (
+    <Animated.View style={[sk.tabsWrap, style]}>
+      <View style={sk.tabBtn} />
+      <View style={sk.tabBtn} />
+    </Animated.View>
+  );
+}
+
+function StoryCardSkeleton() {
+  const style = usePulse();
+  return (
+    <Animated.View style={[sk.card, style]}>
+      <View style={sk.cardHeader}>
+        <View style={sk.cardAvatar} />
+        <View style={sk.cardAuthorLine} />
+      </View>
+      <View style={sk.cardTitleLine} />
+      <View style={sk.cardImage} />
+      <View style={sk.cardFooter}>
+        <View style={sk.cardFooterLine} />
+      </View>
+    </Animated.View>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <ProfileHeaderSkeleton />
+      <TabsSkeleton />
+      <View style={{ paddingHorizontal: 16, gap: 12 }}>
+        {[...Array(4)].map((_, i) => (
+          <StoryCardSkeleton key={i} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ── Pantalla ──────────────────────────────────────────────────────────────────
 export default function Profile() {
   const navigation = useNavigation();
   const router = useRouter();
 
-    // ✅ Animación de entrada al tab
-  const enter = useSharedValue(1);
-
-  const enterStyle = useAnimatedStyle(() => {
-    return {
-      opacity: enter.value,
-transform: [
-  { translateX: (1 - enter.value) * 60 },
-  { scale: 0.98 + enter.value * 0.02 },
-],
-    };
-  });
 
 
-  const [fontsLoaded] = useFonts({
-    Risque_400Regular,
-  });
+  const [fontsLoaded] = useFonts({ Risque_400Regular });
+  const { width } = useWindowDimensions();
 
-
+  const [loading, setLoading] = useState(true); // ← NUEVO
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [likesPublic, setLikesPublic] = useState<boolean>(true);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [createdAt, setCreatedAt] = useState<string>('');
 
-
   const [tab, setTab] = useState<'mine' | 'likes'>('mine');
   const [myStories, setMyStories] = useState<DBStory[]>([]);
   const [likedStories, setLikedStories] = useState<DBStory[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
-
-
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
-
 
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-
-  // 👇 NUEVO: Modal de insignias
   const [badgeModal, setBadgeModal] = useState<{ visible: boolean; type: 'admin' | 'early' | null }>({
     visible: false,
     type: null,
   });
-
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -182,7 +212,6 @@ transform: [
     onConfirm: () => setShowSheet(false),
     variant: 'info',
   });
-
 
   function showNotification(
     title: string,
@@ -200,19 +229,20 @@ transform: [
     setShowSheet(true);
   }
 
-
   useLayoutEffect(() => {
     if (!fontsLoaded) return;
-
-
     navigation.setOptions({
       headerTitle: () => (
         <Text
+          adjustsFontSizeToFit
+          numberOfLines={1}
           style={{
             fontFamily: 'Risque_400Regular',
-            fontSize: 22,
+            fontSize: width * 0.055,
             color: '#F3F4F6',
-            letterSpacing: 0.4,
+            letterSpacing: 0.2,
+            minWidth: 80,
+            textAlign: 'center',
           }}
         >
           U-PAZ
@@ -223,10 +253,7 @@ transform: [
         <TouchableOpacity
           onPress={() => router.push('/')}
           hitSlop={10}
-          style={{
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-          }}
+          style={{ paddingHorizontal: 16, paddingVertical: 8 }}
         >
           <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
         </TouchableOpacity>
@@ -239,23 +266,17 @@ transform: [
         >
           <View style={{ width: 24, height: 24, justifyContent: 'center', alignItems: 'center' }}>
             <MaterialCommunityIcons name="hexagon-outline" size={22} color="#ffffff" />
-            <View
-              style={{
-                position: 'absolute',
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                borderWidth: 1.5,
-                borderColor: '#ffffff',
-                backgroundColor: 'transparent',
-              }}
-            />
+            <View style={{
+              position: 'absolute',
+              width: 8, height: 8, borderRadius: 4,
+              borderWidth: 1.5, borderColor: '#ffffff',
+              backgroundColor: 'transparent',
+            }} />
           </View>
         </TouchableOpacity>
       ),
     });
   }, [navigation, router, fontsLoaded]);
-
 
   const loadFromSupabase = useCallback(async () => {
     try {
@@ -263,7 +284,6 @@ transform: [
       if (authErr) throw authErr;
       const uid = authData.user?.id ?? null;
       setUserId(uid);
-
 
       if (!uid) {
         setDisplayName('Usuario');
@@ -274,20 +294,17 @@ transform: [
         return;
       }
 
-
       const { data: prof } = await supabase
         .from('profiles')
         .select('display_name, avatar_url, likes_public, is_admin, created_at')
         .eq('id', uid)
         .single<ProfileRow>();
 
-
       setDisplayName(prof?.display_name || 'Usuario');
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
       setIsAdmin(prof?.is_admin ?? false);
       setCreatedAt(prof?.created_at ?? '');
-
 
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
@@ -300,26 +317,23 @@ transform: [
           comments_count,
           created_at,
           author_id,
-          author_name,
-          category,
           profiles!stories_author_id_fkey ( display_name, avatar_url )
         `)
         .eq('author_id', uid)
         .order('created_at', { ascending: false });
       if (mineErr) throw mineErr;
 
-
       const myStoriesWithAuthor = (mine ?? []).map((story: any) => {
-        if (!story.profiles || story.profiles.length === 0) {
+        const profileArr = toArray(story.profiles);
+        if (profileArr.length === 0) {
           return {
             ...story,
             profiles: [{ display_name: prof?.display_name || 'Tú', avatar_url: prof?.avatar_url ?? null }],
           };
         }
-        return story;
+        return { ...story, profiles: profileArr };
       });
       setMyStories(myStoriesWithAuthor);
-
 
       const { data: likeRows, error: likeErr } = await supabase
         .from('story_likes')
@@ -328,17 +342,14 @@ transform: [
         .order('created_at', { ascending: false });
       if (likeErr) throw likeErr;
 
-
       const ids = (likeRows || []).map((r: any) => r.story_id as string);
       setLikedIds(new Set(ids));
-
 
       if (ids.length === 0) {
         setLikedStories([]);
       } else {
         const likedAtMap = new Map<string, string>();
         (likeRows || []).forEach((r: any) => likedAtMap.set(r.story_id, r.created_at));
-
 
         const { data: liked, error: likedErr } = await supabase
           .from('stories')
@@ -351,24 +362,21 @@ transform: [
             comments_count,
             created_at,
             author_id,
-            author_name,
-            category,
             profiles!stories_author_id_fkey ( display_name, avatar_url )
           `)
           .in('id', ids);
         if (likedErr) throw likedErr;
 
-
         let likedWithAuthor: DBStory[] = (liked ?? []).map((story: any) => {
-          if (!story.profiles || story.profiles.length === 0) {
+          const profileArr = toArray(story.profiles);
+          if (profileArr.length === 0) {
             return {
               ...story,
-              profiles: [{ display_name: story.author_name || 'Autor', avatar_url: null }],
+              profiles: [{ display_name: 'Autor', avatar_url: null }],
             };
           }
-          return story;
+          return { ...story, profiles: profileArr };
         });
-
 
         const authorIds = Array.from(new Set(likedWithAuthor.map(s => s.author_id)));
         if (authorIds.length) {
@@ -377,33 +385,27 @@ transform: [
             .select('id, display_name, avatar_url')
             .in('id', authorIds);
 
-
           const pMap = new Map<string, { display_name: string | null; avatar_url: string | null }>();
           (authorProfiles ?? []).forEach((p: any) => {
             pMap.set(p.id, { display_name: p.display_name ?? null, avatar_url: p.avatar_url ?? null });
           });
 
-
           likedWithAuthor = likedWithAuthor.map(st => {
-            const current = st.profiles?.[0] ?? null;
+            const current = toArray(st.profiles)[0] ?? null;
             const fromMap = pMap.get(st.author_id) ?? null;
 
-
             if (!current || current.avatar_url == null || current.display_name == null) {
-              const display_name = current?.display_name ?? fromMap?.display_name ?? st.author_name ?? 'Autor';
+              const display_name = current?.display_name ?? fromMap?.display_name ?? 'Autor';
               const avatar_url =
                 (st.author_id === uid ? (prof?.avatar_url ?? null) : null) ??
                 current?.avatar_url ??
                 fromMap?.avatar_url ??
                 null;
-
-
               return { ...st, profiles: [{ display_name, avatar_url }] };
             }
             return st;
           });
         }
-
 
         likedWithAuthor = likedWithAuthor.map(st => ({ ...st, liked_at: likedAtMap.get(st.id) }));
         likedWithAuthor.sort((a, b) => {
@@ -411,68 +413,52 @@ transform: [
           const db = b.liked_at ?? b.created_at;
           return db.localeCompare(da);
         });
-
-
         setLikedStories(likedWithAuthor);
       }
     } catch (e: any) {
       showNotification('Error', e?.message ?? 'No se pudo cargar tu perfil.', 'error');
+    } finally {
+      setLoading(false); // ← NUEVO
     }
   }, []);
 
-
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
-useFocusEffect(
-  useCallback(() => {
-    enter.value = 0;
-    enter.value = withTiming(1, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-    });
 
-    loadFromSupabase();
-  }, [loadFromSupabase])
-);
+    // ✅ Solo recargar datos, sin animación
+    useFocusEffect(
+      useCallback(() => {
+        loadFromSupabase();
+      }, [loadFromSupabase])
+    );
 
 
   async function selectDefaultAvatar(avatarId: string) {
-  if (uploadingAvatar) return;
+    if (uploadingAvatar) return;
+    try {
+      setUploadingAvatar(true);
+      const { data: authData } = await supabase.auth.getUser();
+      const uid = authData.user?.id;
+      if (!uid) return;
 
-  try {
-    setUploadingAvatar(true);
+      const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
+      if (!avatar) return;
 
-    const { data: authData } = await supabase.auth.getUser();
-    const uid = authData.user?.id;
-    if (!uid) return;
+      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(avatar.publicPath);
+      const url = pub?.publicUrl ?? null;
+      if (!url) throw new Error('No se pudo obtener la URL del avatar.');
 
-    const avatar = DEFAULT_AVATARS.find(a => a.id === avatarId);
-    if (!avatar) return;
+      const { error: profErr } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', uid);
+      if (profErr) throw profErr;
 
-    const { data: pub } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(avatar.publicPath);
-
-    const url = pub?.publicUrl ?? null;
-    if (!url) throw new Error('No se pudo obtener la URL del avatar.');
-
-    const { error: profErr } = await supabase
-      .from('profiles')
-      .update({ avatar_url: url })
-      .eq('id', uid);
-
-    if (profErr) throw profErr;
-
-    setAvatarUrl(url);
-    setShowAvatarPicker(false);
-    showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
-  } catch (e: any) {
-    showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
-  } finally {
-    setUploadingAvatar(false);
+      setAvatarUrl(url);
+      setShowAvatarPicker(false);
+      showNotification('Listo', 'Tu foto de perfil ha sido actualizada.', 'info');
+    } catch (e: any) {
+      showNotification('Error', e?.message ?? 'No se pudo actualizar el avatar.', 'error');
+    } finally {
+      setUploadingAvatar(false);
+    }
   }
-}
-
-
 
   async function pickImage(): Promise<string | null> {
     const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -488,47 +474,36 @@ useFocusEffect(
     return res.assets[0].uri;
   }
 
-
   async function onChangeAvatar() {
     if (uploadingAvatar) return;
-
-
     try {
       const { data: authData } = await supabase.auth.getUser();
       const uid = authData.user?.id;
       if (!uid) return;
 
-
       const localUri = await pickImage();
       if (!localUri) return;
 
-
       setUploadingAvatar(true);
-
 
       const { ext, type } = getExtAndType(localUri);
       const ab = await uriToArrayBuffer(localUri);
-      const path = `${uid}/avatar.${ext}`;
-
+      const path = `${uid}/avatar.jpg`;
 
       const { error: upErr } = await supabase.storage
         .from('covers')
-        .upload(path, ab, { upsert: true, contentType: type, cacheControl: '3600' });
+        .upload(path, ab, { upsert: true, contentType: type, cacheControl: '1' });
       if (upErr) throw upErr;
 
-
       const { data: pub } = supabase.storage.from('covers').getPublicUrl(path);
-      const url = pub.publicUrl;
-
+      const url = `${pub.publicUrl}?cb=${Date.now()}`;
 
       const { error: profErr } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', uid);
       if (profErr) {
-        showNotification('Error', 'No se pudo actualizar el avatar. Verifica que tienes permisos.', 'error');
-        console.error('Error al actualizar avatar:', profErr);
+        showNotification('Error', 'No se pudo actualizar el avatar.', 'error');
         setUploadingAvatar(false);
         return;
       }
-
 
       setAvatarUrl(url);
       setShowAvatarPicker(false);
@@ -540,12 +515,10 @@ useFocusEffect(
     }
   }
 
-
   const toggleLike = useCallback(
     async (story: DBStory) => {
       if (!userId) return;
       const isLiked = likedIds.has(story.id);
-
 
       setLikedIds(prev => {
         const next = new Set(prev);
@@ -554,13 +527,10 @@ useFocusEffect(
         return next;
       });
 
-
       const adjustCount = (arr: DBStory[], id: string, delta: number) =>
         arr.map(s => (s.id === id ? { ...s, likes_count: Math.max(0, (s.likes_count || 0) + delta) } : s));
 
-
       setMyStories(curr => adjustCount(curr, story.id, isLiked ? -1 : +1));
-
 
       if (tab === 'likes') {
         if (isLiked) {
@@ -575,7 +545,6 @@ useFocusEffect(
         setLikedStories(curr => adjustCount(curr, story.id, isLiked ? -1 : +1));
       }
 
-
       if (isLiked) {
         const { error } = await supabase
           .from('story_likes')
@@ -583,81 +552,60 @@ useFocusEffect(
           .match({ user_id: userId, story_id: story.id });
         if (error) {
           setLikedIds(prev => new Set(prev).add(story.id));
-          showNotification('Ups', 'No se pudo quitar tu like. Intenta de nuevo.', 'error');
+          showNotification('Ups', 'No se pudo quitar tu like.', 'error');
         }
       } else {
         const { error } = await supabase
           .from('story_likes')
           .insert({ user_id: userId, story_id: story.id });
         if (error) {
-          setLikedIds(prev => {
-            const next = new Set(prev);
-            next.delete(story.id);
-            return next;
-          });
-          showNotification('Ups', 'No se pudo registrar tu like. Intenta de nuevo.', 'error');
+          setLikedIds(prev => { const next = new Set(prev); next.delete(story.id); return next; });
+          showNotification('Ups', 'No se pudo registrar tu like.', 'error');
         }
       }
     },
     [userId, likedIds, tab]
   );
 
-
   const listData = useMemo(() => (tab === 'mine' ? myStories : likedStories), [tab, myStories, likedStories]);
   const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
+  // ── Mostrar skeleton mientras carga ──────────────────────────────────────
+  if (loading) return <ProfileSkeleton />;
 
   return (
-<GestureHandlerRootView style={{ flex: 1 }}>
-  <Animated.View style={[s.screen, enterStyle]}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={s.screen}>
         <View style={s.avatarRow}>
           <View style={s.avatarWrap}>
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => avatarUrl && setShowAvatarZoom(true)}
-            >
+            <TouchableOpacity activeOpacity={0.9} onPress={() => avatarUrl && setShowAvatarZoom(true)}>
               {avatarUrl ? (
                 <Image source={{ uri: avatarUrl }} style={s.avatar} />
               ) : (
                 <View style={[s.avatar, { backgroundColor: '#0F1016' }]} />
               )}
             </TouchableOpacity>
-
-
-            <TouchableOpacity
-              style={s.editAvatarBtn}
-              onPress={() => setShowAvatarPicker(true)}
-              hitSlop={10}
-            >
+            <TouchableOpacity style={s.editAvatarBtn} onPress={() => setShowAvatarPicker(true)} hitSlop={10}>
               <Ionicons name="camera-outline" size={16} color="#F3F4F6" />
             </TouchableOpacity>
           </View>
 
-
-          {/* 👇 NOMBRE MÁS GRANDE + INSIGNIAS CLICKEABLES */}
           <View style={{ flex: 1 }}>
             <Text style={s.name}>{displayName}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
               {isAdmin && (
-                <TouchableOpacity
-                  onPress={() => setBadgeModal({ visible: true, type: 'admin' })}
-                  hitSlop={8}
-                >
+                <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'admin' })} hitSlop={8}>
                   <MaterialIcons name="verified" size={24} color="#FFD700" />
                 </TouchableOpacity>
               )}
               {isEarlyUser && (
-                <TouchableOpacity
-                  onPress={() => setBadgeModal({ visible: true, type: 'early' })}
-                  hitSlop={8}
-                >
+                <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'early' })} hitSlop={8}>
                   <MaterialIcons name="verified" size={24} color="#06B6D4" />
                 </TouchableOpacity>
               )}
             </View>
           </View>
         </View>
-
 
         <View style={s.tabs}>
           <View style={s.tabBtnContainer}>
@@ -680,7 +628,6 @@ useFocusEffect(
             </TouchableOpacity>
           </View>
         </View>
-
 
         <FlatList
           data={listData}
@@ -705,8 +652,6 @@ useFocusEffect(
           showsVerticalScrollIndicator={false}
         />
 
-
-        {/* 👇 MODAL DE INSIGNIAS */}
         <Modal visible={badgeModal.visible} transparent animationType="fade">
           <View style={s.badgeOverlay}>
             <TouchableOpacity
@@ -721,7 +666,6 @@ useFocusEffect(
                 <Ionicons name="close-circle" size={28} color="#F3F4F6" />
               </TouchableOpacity>
 
-
               {badgeModal.type === 'admin' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#FFD700" />
@@ -732,13 +676,12 @@ useFocusEffect(
                 </View>
               )}
 
-
               {badgeModal.type === 'early' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#06B6D4" />
                   <Text style={s.badgeTitle}>Usuario Temprano</Text>
                   <Text style={s.badgeDesc}>
-                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025. ¡Gracias por ser parte de nuestro inicio!
+                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025.
                   </Text>
                 </View>
               )}
@@ -746,21 +689,13 @@ useFocusEffect(
           </View>
         </Modal>
 
-
-        {/* MODAL ZOOM DE AVATAR */}
         <ImageZoomModal
           visible={showAvatarZoom}
           imageUri={avatarUrl || ''}
           onClose={() => setShowAvatarZoom(false)}
         />
 
-
-        {/* MODAL DE CARGA DE FOTO */}
-        <Modal
-          visible={uploadingAvatar}
-          transparent
-          animationType="fade"
-        >
+        <Modal visible={uploadingAvatar} transparent animationType="fade">
           <View style={s.loadingOverlay}>
             <View style={s.loadingBox}>
               <ActivityIndicator size="large" color="#32B8C6" />
@@ -770,8 +705,6 @@ useFocusEffect(
           </View>
         </Modal>
 
-
-        {/* Modal selector de avatar */}
         <Modal
           visible={showAvatarPicker}
           transparent
@@ -787,11 +720,9 @@ useFocusEffect(
                   hitSlop={10}
                   disabled={uploadingAvatar}
                 >
-                  <Ionicons name="close" size={24} color={uploadingAvatar ? "#666" : "#F3F4F6"} />
+                  <Ionicons name="close" size={24} color={uploadingAvatar ? '#666' : '#F3F4F6'} />
                 </TouchableOpacity>
               </View>
-
-
               <ScrollView contentContainerStyle={s.avatarGrid} showsVerticalScrollIndicator={false}>
                 {DEFAULT_AVATARS.map((avatar) => (
                   <TouchableOpacity
@@ -806,8 +737,6 @@ useFocusEffect(
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-
-
               <TouchableOpacity
                 style={[s.galleryBtn, uploadingAvatar && { opacity: 0.5 }]}
                 onPress={onChangeAvatar}
@@ -820,71 +749,51 @@ useFocusEffect(
           </View>
         </Modal>
 
-
-        {/* Sheet de notificaciones */}
-        <Modal
-          visible={showSheet}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowSheet(false)}
-        >
+        <Modal visible={showSheet} transparent animationType="fade" onRequestClose={() => setShowSheet(false)}>
           <View style={s.overlay}>
             <View style={s.sheet}>
-              <View
-                style={[
-                  s.iconWrap,
-                  sheet.variant === 'error'
-                    ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
-                    : { backgroundColor: '#1F2937', borderColor: '#374151' },
-                ]}
-              >
+              <View style={[
+                s.iconWrap,
+                sheet.variant === 'error'
+                  ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
+                  : { backgroundColor: '#1F2937', borderColor: '#374151' },
+              ]}>
                 <Ionicons
                   name={sheet.variant === 'error' ? 'alert-circle' : 'information-circle'}
                   size={24}
                   color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
                 />
               </View>
-
-
               <Text style={s.sheetTitle}>{sheet.title}</Text>
               <Text style={s.sheetMsg}>{sheet.message}</Text>
-
-
               <View style={s.sheetActions}>
-                <TouchableOpacity
-                  style={[s.sheetBtn, s.sheetBtnPrimary]}
-                  onPress={sheet.onConfirm}
-                >
+                <TouchableOpacity style={[s.sheetBtn, s.sheetBtnPrimary]} onPress={sheet.onConfirm}>
                   <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
-  </Animated.View>
-</GestureHandlerRootView>
-
+      </View>
+    </GestureHandlerRootView>
   );
 }
-
 
 function ImageZoomModal({
   visible,
   imageUri,
-  onClose
+  onClose,
 }: {
   visible: boolean;
   imageUri: string;
-  onClose: () => void
+  onClose: () => void;
 }) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
-
   const doubleTapRef = useCallback((ref: any) => ref, []);
-
 
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
@@ -900,11 +809,9 @@ function ImageZoomModal({
     }
   };
 
-
   const onPinch = (event: any) => {
     scale.value = baseScale.value * event.nativeEvent.scale;
   };
-
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
@@ -916,7 +823,6 @@ function ImageZoomModal({
     }
   };
 
-
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -926,44 +832,24 @@ function ImageZoomModal({
     borderRadius: scale.value === 1 ? (SCREEN_WIDTH * 0.9) / 2 : 0,
   }));
 
-
   return (
     <Modal visible={visible} transparent animationType="fade">
-      <View style={s.zoomOverlay}>
-        <TouchableOpacity
-          style={s.zoomCloseBtn}
-          onPress={onClose}
-          hitSlop={10}
-        >
-          <Ionicons name="close-circle" size={40} color="#fff" />
-        </TouchableOpacity>
-
-
-        <TapGestureHandler
-          ref={doubleTapRef}
-          onHandlerStateChange={onDoubleTap}
-          numberOfTaps={2}
-        >
-          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <PinchGestureHandler
-              onGestureEvent={onPinch}
-              onEnded={onPinchEnd}
-            >
+      <TouchableOpacity style={s.zoomOverlay} activeOpacity={1} onPress={onClose}>
+        <TapGestureHandler ref={doubleTapRef} onHandlerStateChange={onDoubleTap} numberOfTaps={2}>
+          <Animated.View style={{ justifyContent: 'center', alignItems: 'center' }}>
+            <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
-                <Image
-                  source={{ uri: imageUri }}
-                  style={s.zoomImage}
-                  resizeMode="cover"
-                />
+                <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+                  <Image source={{ uri: imageUri }} style={s.zoomImage} resizeMode="cover" />
+                </TouchableOpacity>
               </Animated.View>
             </PinchGestureHandler>
           </Animated.View>
         </TapGestureHandler>
-      </View>
+      </TouchableOpacity>
     </Modal>
   );
 }
-
 
 function ProfileStoryCard({
   item,
@@ -981,27 +867,20 @@ function ProfileStoryCard({
   onToggleLike: () => void;
 }) {
   const hasCover = !!item.cover_url;
-  const authorForCard =
-    item.author_name?.trim() || (item.profiles?.[0]?.display_name?.trim() || 'Autor');
 
-
+  const profileArr = toArray(item.profiles);
+  const authorForCard = profileArr[0]?.display_name?.trim() || 'Autor';
   const shouldUseSelfAvatar = isMine || (currentUserId && item.author_id === currentUserId);
-  const authorAvatar =
-    shouldUseSelfAvatar ? avatarUrl : (item.profiles?.[0]?.avatar_url || null);
+  const authorAvatar = shouldUseSelfAvatar ? avatarUrl : (profileArr[0]?.avatar_url || null);
 
-
-  // 👇 NUEVO: Estado para modal de likes
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
 
-
-  // 👇 NUEVO: Función para cargar usuarios que dieron like
   const handleShowLikes = async () => {
     setShowLikesModal(true);
     setLoadingLikes(true);
-
     try {
       const { data: likes, error } = await supabase
         .from('story_likes')
@@ -1026,7 +905,6 @@ function ProfileStoryCard({
         is_admin: like.profiles.is_admin,
         created_at: like.profiles.created_at,
       }));
-
       setLikeUsers(users);
     } catch (e: any) {
       console.error('Error cargando likes:', e);
@@ -1034,7 +912,6 @@ function ProfileStoryCard({
       setLoadingLikes(false);
     }
   };
-
 
   const handleLikePress = async () => {
     if (isLiking) return;
@@ -1046,10 +923,8 @@ function ProfileStoryCard({
     }
   };
 
-
   const likesCount = item.likes_count ?? 0;
   const commentsCount = item.comments_count ?? 0;
-
 
   return (
     <>
@@ -1077,36 +952,18 @@ function ProfileStoryCard({
               <View style={[s.avatarMini, { backgroundColor: '#0F1016' }]} />
             )}
             <Text style={s.authorTxt}>{authorForCard}</Text>
-
-
-            <View style={s.categoryBadge}>
-              {getCategoryIcon(item.category)}
-              <Text style={s.categoryText}>{item.category}</Text>
-            </View>
           </View>
-
 
           <Text style={s.cardTitle}>{item.title}</Text>
 
-
           {hasCover ? <Image source={{ uri: item.cover_url! }} style={s.cardImg} /> : null}
 
-
           {!hasCover ? (
-            <Text style={s.excerpt} numberOfLines={3}>
-              {item.body}
-            </Text>
+            <Text style={s.excerpt} numberOfLines={3}>{item.body}</Text>
           ) : null}
 
-
           <View style={s.footerRow}>
-            {/* Botón de like */}
-            <TouchableOpacity 
-              onPress={handleLikePress} 
-              style={s.meta} 
-              hitSlop={10}
-              disabled={isLiking}
-            >
+            <TouchableOpacity onPress={handleLikePress} style={s.meta} hitSlop={10} disabled={isLiking}>
               <Ionicons
                 name={isLiked ? 'heart' : 'heart-outline'}
                 size={16}
@@ -1115,9 +972,7 @@ function ProfileStoryCard({
               />
             </TouchableOpacity>
 
-
-            {/* Contador de likes clickeable */}
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleShowLikes}
               activeOpacity={0.8}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -1128,40 +983,29 @@ function ProfileStoryCard({
               </Text>
             </TouchableOpacity>
 
-
-            {/* Icono de comentarios */}
             <View style={[s.meta, { marginLeft: 12 }]}>
-              <Ionicons name="chatbox-outline" size={16} color='white' />
+              <Ionicons name="chatbox-outline" size={16} color="white" />
             </View>
 
-
-            {/* Contador de comentarios */}
             <View style={{ marginLeft: 4 }}>
-              <Text style={s.metaTxt}>{commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}</Text>
+              <Text style={s.metaTxt}>
+                {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
+              </Text>
             </View>
           </View>
         </TouchableOpacity>
       </Link>
 
-
-      {/* 👇 NUEVO: Modal de likes */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
-          <TouchableOpacity
-            style={s.likeBackdrop}
-            onPress={() => setShowLikesModal(false)}
-          />
+          <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
           <View style={s.likesSheet}>
             <View style={s.likesHeader}>
               <Text style={s.likesTitle}>Les dio like</Text>
-              <TouchableOpacity
-                onPress={() => setShowLikesModal(false)}
-                hitSlop={10}
-              >
+              <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
                 <Ionicons name="close" size={24} color="#F3F4F6" />
               </TouchableOpacity>
             </View>
-
 
             {loadingLikes ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -1181,12 +1025,7 @@ function ProfileStoryCard({
                   const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
                   return (
                     <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
-                      <TouchableOpacity
-                        style={s.likeUserCard}
-                        onPress={() => {
-                          setShowLikesModal(false);
-                        }}
-                      >
+                      <TouchableOpacity style={s.likeUserCard} onPress={() => setShowLikesModal(false)}>
                         {user.avatar_url ? (
                           <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
                         ) : (
@@ -1213,7 +1052,6 @@ function ProfileStoryCard({
   );
 }
 
-
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
@@ -1224,98 +1062,37 @@ const s = StyleSheet.create({
     gap: 12,
   },
   avatarWrap: { position: 'relative' },
-  avatar: {
-    width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F',
-  },
+  avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F' },
   editAvatarBtn: {
     position: 'absolute', right: -2, bottom: -2, width: 26, height: 26, borderRadius: 13,
     backgroundColor: '#1F2937', alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: '#27272A',
   },
   name: { color: '#F3F4F6', fontSize: 28, fontWeight: '700' },
-  badgeOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeBackdrop: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-  },
+  badgeOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
+  badgeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
   badgeContent: {
-    backgroundColor: '#121219',
-    borderRadius: 20,
-    padding: 24,
-    width: '85%',
-    maxWidth: 320,
-    borderWidth: 1,
-    borderColor: '#1F1F27',
-    alignItems: 'center',
-    zIndex: 10,
+    backgroundColor: '#121219', borderRadius: 20, padding: 24,
+    width: '85%', maxWidth: 320, borderWidth: 1, borderColor: '#1F1F27',
+    alignItems: 'center', zIndex: 10,
   },
-  badgeCloseBtn: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    zIndex: 20,
-  },
-  badgeInfo: {
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  badgeTitle: {
-    color: '#F3F4F6',
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  badgeDesc: {
-    color: '#D1D5DB',
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  tabs: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
+  badgeCloseBtn: { position: 'absolute', top: 12, right: 12, zIndex: 20 },
+  badgeInfo: { alignItems: 'center', marginTop: 8 },
+  badgeTitle: { color: '#F3F4F6', fontSize: 20, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+  badgeDesc: { color: '#D1D5DB', fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  tabs: { marginTop: 24, paddingHorizontal: 16, marginBottom: 16 },
   tabBtnContainer: {
-    flexDirection: 'row',
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#000000ff',
-    borderWidth: 2,
-    borderColor: '#202020ff',
-    width: '100%',
-    maxWidth: 320,
-    alignSelf: 'center',
-    overflow: 'hidden',
+    flexDirection: 'row', height: 40, borderRadius: 8,
+    backgroundColor: '#000000ff', borderWidth: 2, borderColor: '#202020ff',
+    width: '100%', maxWidth: 320, alignSelf: 'center', overflow: 'hidden',
   },
-  tabBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  tabBtnActive: {
-    backgroundColor: '#1f1f1fff',
-  },
-  tabTxt: {
-    color: '#F3F4F6',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  tabTxtActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
+  tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  tabBtnActive: { backgroundColor: '#1f1f1fff' },
+  tabTxt: { color: '#F3F4F6', fontWeight: '600', fontSize: 16 },
+  tabTxtActive: { color: '#FFFFFF', fontWeight: '700' },
   card: {
-    backgroundColor: '#010102ff', borderRadius: 14, overflow: 'hidden', borderWidth: 1,
-    borderColor: '#181818ff', padding: 12,
+    backgroundColor: '#010102ff', borderRadius: 14, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#181818ff', padding: 12,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   avatarMini: {
@@ -1323,20 +1100,6 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: '#1F1F27',
   },
   authorTxt: { color: '#E5E7EB', fontWeight: '600', flex: 1 },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#1a1a1aff',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  categoryText: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    fontWeight: '600',
-  },
   cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
   cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
   excerpt: { color: '#D1D5DB' },
@@ -1345,223 +1108,128 @@ const s = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: '#010102ff', paddingTop: 8,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metaTxt: { color: '#F3F4F6' },
-  zoomOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  metaTxt: { color: '#9CA3AF', fontSize: 13, fontWeight: '600' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#010102ff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 24, borderWidth: 1, borderColor: '#181818ff', alignItems: 'center',
   },
-  zoomCloseBtn: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
+  iconWrap: {
+    width: 48, height: 48, borderRadius: 24,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, marginBottom: 12,
+  },
+  sheetTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  sheetMsg: { color: '#D1D5DB', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  sheetActions: { width: '100%', gap: 8 },
+  sheetBtn: { height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  sheetBtnPrimary: { backgroundColor: '#1F2937' },
+  sheetBtnText: { color: '#F3F4F6', fontWeight: '600' },
+  avatarPickerSheet: {
+    backgroundColor: '#010102ff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 16, maxHeight: '80%', borderWidth: 1, borderColor: '#181818ff',
+  },
+  avatarPickerHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 16,
+  },
+  avatarPickerTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
+  avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', paddingBottom: 16 },
+  avatarOption: { alignItems: 'center', width: 80 },
+  avatarOptionImg: { width: 72, height: 72, borderRadius: 36, marginBottom: 6 },
+  avatarOptionName: { color: '#D1D5DB', fontSize: 12, textAlign: 'center' },
+  galleryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: '#1F2937', borderRadius: 10,
+    paddingVertical: 12, marginTop: 8,
+  },
+  galleryBtnText: { color: '#F3F4F6', fontWeight: '600' },
+  loadingOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
+  loadingBox: {
+    backgroundColor: '#010102ff', borderRadius: 20, padding: 32,
+    alignItems: 'center', borderWidth: 1, borderColor: '#181818ff', gap: 12,
+  },
+  loadingText: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
+  loadingSubtext: { color: '#9CA3AF', fontSize: 14 },
+  zoomOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center', alignItems: 'center',
   },
   zoomImage: {
     width: SCREEN_WIDTH * 0.9,
     height: SCREEN_WIDTH * 0.9,
     borderRadius: (SCREEN_WIDTH * 0.9) / 2,
   },
-  loadingOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingBox: {
-    backgroundColor: '#121219',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1F1F27',
-    minWidth: 200,
-  },
-  loadingText: {
-    color: '#F3F4F6',
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 16,
-  },
-  loadingSubtext: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    width: '100%',
-    backgroundColor: '#121219',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
-    borderTopWidth: 1,
-    borderColor: '#1F1F27',
-  },
-  iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    alignSelf: 'center',
-    marginBottom: 8,
-  },
-  sheetTitle: {
-    color: '#F3F4F6',
-    fontWeight: '700',
-    fontSize: 18,
-    textAlign: 'center'
-  },
-  sheetMsg: {
-    color: '#D1D5DB',
-    textAlign: 'center',
-    marginTop: 6
-  },
-  sheetActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-    justifyContent: 'center'
-  },
-  sheetBtn: {
-    height: 44,
-    paddingHorizontal: 24,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  sheetBtnPrimary: {
-    backgroundColor: '#1F2937',
-    borderColor: '#27272A'
-  },
-  sheetBtnText: {
-    fontWeight: '600',
-    color: '#fff'
-  },
-  avatarPickerSheet: {
-    width: '100%',
-    maxHeight: '75%',
-    backgroundColor: '#121219',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    borderTopWidth: 1,
-    borderColor: '#1F1F27',
-  },
-  avatarPickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  avatarPickerTitle: {
-    color: '#F3F4F6',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  avatarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    justifyContent: 'space-between',
-    paddingBottom: 20,
-  },
-  avatarOption: {
-    width: '30%',
-    alignItems: 'center',
-    gap: 8,
-  },
-  avatarOptionImg: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: '#1F1F27',
-  },
-  avatarOptionName: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  galleryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#1F2937',
-    borderWidth: 1,
-    borderColor: '#27272A',
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 10,
-  },
-  galleryBtnText: {
-    color: '#F3F4F6',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  // 👇 NUEVOS: Estilos para el modal de likes
-  likesOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  likeBackdrop: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-  },
+  likesOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  likeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
   likesSheet: {
-    backgroundColor: '#010102ff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderColor: '#181818ff',
-    maxHeight: '75%',
-    zIndex: 10,
+    backgroundColor: '#010102ff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    borderTopWidth: 1, borderColor: '#181818ff', maxHeight: '75%', zIndex: 10,
   },
   likesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#181818ff',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: '#181818ff',
   },
-  likesTitle: {
-    color: '#F3F4F6',
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  likesTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
   likeUserCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#010102ff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#181818ff',
-    padding: 12,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#010102ff',
+    borderRadius: 12, borderWidth: 1, borderColor: '#181818ff', padding: 12, gap: 12,
   },
-  likeUserAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#2C2C33',
+  likeUserAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#2C2C33' },
+  likeUserName: { color: '#F3F4F6', fontWeight: '600' },
+});
+
+// ── Skeleton styles ───────────────────────────────────────────────────────────
+const sk = StyleSheet.create({
+  headerWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, marginTop: 24, gap: 12,
   },
-  likeUserName: {
-    color: '#F3F4F6',
-    fontWeight: '600',
+  avatar: {
+    width: 96, height: 96, borderRadius: 48,
+    backgroundColor: '#1a1a1aff',
+  },
+  nameLine: {
+    height: 22, width: '60%', borderRadius: 8,
+    backgroundColor: '#1a1a1aff',
+  },
+  subLine: {
+    height: 14, width: '30%', borderRadius: 6,
+    backgroundColor: '#1a1a1aff',
+  },
+  tabsWrap: {
+    flexDirection: 'row', marginTop: 24,
+    paddingHorizontal: 16, gap: 8, marginBottom: 16,
+  },
+  tabBtn: {
+    flex: 1, height: 40, borderRadius: 8,
+    backgroundColor: '#1a1a1aff',
+  },
+  card: {
+    backgroundColor: '#0d0d0dff', borderRadius: 14,
+    borderWidth: 1, borderColor: '#181818ff', padding: 12, gap: 10,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardAvatar: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: '#1a1a1aff',
+  },
+  cardAuthorLine: {
+    height: 12, width: '35%', borderRadius: 6,
+    backgroundColor: '#1a1a1aff',
+  },
+  cardTitleLine: {
+    height: 18, width: '70%', borderRadius: 6,
+    backgroundColor: '#1a1a1aff',
+  },
+  cardImage: {
+    width: '100%', aspectRatio: 16 / 9,
+    borderRadius: 10, backgroundColor: '#1a1a1aff',
+  },
+  cardFooter: { paddingTop: 8, borderTopWidth: 1, borderTopColor: '#181818ff' },
+  cardFooterLine: {
+    height: 12, width: '40%', borderRadius: 6,
+    backgroundColor: '#1a1a1aff',
   },
 });

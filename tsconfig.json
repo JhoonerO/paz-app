@@ -2,11 +2,14 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "moduleResolution": "bundler",
     "module": "ESNext",
+    "jsx": "react-native",
     "forceConsistentCasingInFileNames": true
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    ".expo/types/**/*.d.ts"
   ]
 }

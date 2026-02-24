@@ -1,630 +1,573 @@
-  // app/(tabs)/index.tsx
-  import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-  import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    Image,
-    TouchableOpacity,
-    RefreshControl,
-    Modal,
-    ActivityIndicator,
-  } from 'react-native';
-  import { Link, useFocusEffect, useRouter, useNavigation } from 'expo-router';
-  import { Ionicons, AntDesign } from '@expo/vector-icons';
-  import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-  import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-  import { supabase } from '../../lib/supabase';
-  import { like, unlike } from '../../lib/likes'; 
+// app/(tabs)/index.tsx
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Image,
+  TouchableOpacity,
+  RefreshControl,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
+import { Link, useFocusEffect, useRouter, useNavigation } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { supabase } from '../../lib/supabase';
+import { like, unlike } from '../../lib/likes';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
 
-  import Animated, {
-    useSharedValue,
-    useAnimatedStyle,
-    withTiming,
-    Easing,
-  } from 'react-native-reanimated';
-
-  type DBStory = {
-    id: string;
-    title: string;
-    body: string;
-    cover_url: string | null;
-    likes_count: number;
-    comments_count: number;
-    created_at: string;
-    author_id: string;
-    author_name: string | null;
-    category: string;
-    profiles: { avatar_url: string | null; is_admin: boolean; created_at: string }[] | null;
-  };
-
-  type LikeUser = {
-    id: string;
-    display_name: string | null;
+type DBStory = {
+  id: string;
+  title: string;
+  body: string;
+  cover_url: string | null;
+  likes_count: number;
+  comments_count: number;
+  created_at: string;
+  author_id: string;
+  profiles: {
     avatar_url: string | null;
     is_admin: boolean;
     created_at: string;
-  };
+    display_name: string | null;
+  }[] | null;
+};
 
-  const C = {
-    bg: '#000000ff',
-    card: '#010102ff',
-    cardBorder: '#181818ff',
-    textPrimary: '#F3F4F6',
-    textSecondary: '#A1A1AA',
-    line: '#000000ff',
-    avatarBg: '#0F1016',
-    avatarBorder: '#2C2C33',
-    like: '#ef4444',
-    categoryBg: '#1a1a1aff',
-    categoryText: '#9CA3AF',
-  };
+type LikeUser = {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  is_admin: boolean;
+  created_at: string;
+};
 
-  export default function Feed() {
-    const [stories, setStories] = useState<DBStory[]>([]);
-    const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
-    const [refreshing, setRefreshing] = useState(false);
-    const [userId, setUserId] = useState<string | null>(null);
-    const [userAvatar, setUserAvatar] = useState<string | null>(null);
+const C = {
+  bg: '#000000ff',
+  card: '#010102ff',
+  cardBorder: '#181818ff',
+  textPrimary: '#F3F4F6',
+  textSecondary: '#A1A1AA',
+  line: '#000000ff',
+  avatarBg: '#0F1016',
+  avatarBorder: '#2C2C33',
+  like: '#ef4444',
+};
 
-    const isLoadedRef = useRef(false); // 👈 CACHÉ
-    const flatListRef = useRef<FlatList<DBStory>>(null);
+const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
+
+// ─── Skeleton ────────────────────────────────────────────────────────────────
+function SkeletonBox({
+  width, height, borderRadius = 8, style,
+}: {
+  width: number | string; height: number; borderRadius?: number; style?: any;
+}) {
+  const opacity = useSharedValue(0.35);
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withTiming(0.9, { duration: 850, easing: Easing.inOut(Easing.ease) }),
+      -1, true
+    );
+    return () => cancelAnimation(opacity);
+  }, []);
+  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View
+      style={[animStyle, { width: width as any, height, borderRadius, backgroundColor: '#1A1A22' }, style]}
+    />
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <View style={{
+      backgroundColor: C.card, borderRadius: 16,
+      borderWidth: 1, borderColor: C.cardBorder, padding: 12, gap: 10,
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <SkeletonBox width={28} height={28} borderRadius={14} />
+        <SkeletonBox width={100} height={12} borderRadius={6} />
+      </View>
+      <SkeletonBox width="70%" height={16} borderRadius={6} />
+      <SkeletonBox width="100%" height={160} borderRadius={12} />
+      <SkeletonBox width="100%" height={12} borderRadius={6} />
+      <SkeletonBox width="85%" height={12} borderRadius={6} />
+      <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
+        <SkeletonBox width={60} height={12} borderRadius={6} />
+        <SkeletonBox width={80} height={12} borderRadius={6} />
+      </View>
+    </View>
+  );
+}
+
+function FeedSkeleton() {
+  const fadeIn = useSharedValue(0);
+  useEffect(() => { fadeIn.value = withTiming(1, { duration: 260 }); }, []);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fadeIn.value }));
+  return (
+    <Animated.View style={[fadeStyle, { padding: 16, gap: 14 }]}>
+      <SkeletonCard />
+      <SkeletonCard />
+      <SkeletonCard />
+    </Animated.View>
+  );
+}
+
+// ─── Feed principal ───────────────────────────────────────────────────────────
+export default function Feed() {
+  const [stories, setStories] = useState<DBStory[]>([]);
+  const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
+  const [refreshing, setRefreshing] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const isLoadedRef = useRef(false);
+  const flatListRef = useRef<FlatList<DBStory>>(null);
+
+  type TabsNav = BottomTabNavigationProp<any>;
+  const navigation = useNavigation<TabsNav>();
 
 
+  const contentOpacity = useSharedValue(0);
+  const contentStyle = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
 
-    type TabsNav = BottomTabNavigationProp<any>;
-    const navigation = useNavigation<TabsNav>();
+  useEffect(() => {
+    if (!loading) {
+      contentOpacity.value = withTiming(1, {
+        duration: 360,
+        easing: Easing.out(Easing.ease),
+      });
+    }
+  }, [loading]);
 
-    // ✅ Animación de entrada del TAB (no del card)
-    const enter = useSharedValue(1);
-    const enterStyle = useAnimatedStyle(() => {
+  async function loadFeed() {
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData.user?.id ?? null;
+    setUserId(uid);
+
+    if (uid) {
+      const { data: me } = await supabase
+        .from('profiles').select('avatar_url').eq('id', uid)
+        .single<{ avatar_url: string | null }>();
+      setUserAvatar(me?.avatar_url ?? null);
+    } else {
+      setUserAvatar(null);
+    }
+
+    const { data: rows, error } = await supabase
+      .from('stories')
+      .select(`
+        id, title, body, cover_url, likes_count, comments_count,
+        created_at, author_id,
+        profiles!stories_author_id_fkey ( avatar_url, is_admin, created_at, display_name )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.warn(error.message);
+      setStories([]);
+      setLikedSet(new Set());
+      isLoadedRef.current = true;
+      setLoading(false);
+      return;
+    }
+
+    const rawStories = (rows ?? []) as any[];
+    const authorIds = Array.from(new Set(rawStories.map((s) => s.author_id)));
+    const avatarMap = new Map<string, string | null>();
+    const displayNameMap = new Map<string, string | null>();
+
+    if (authorIds.length) {
+      const { data: profRows } = await supabase
+        .from('profiles').select('id, avatar_url, display_name').in('id', authorIds);
+      (profRows ?? []).forEach((p: any) => {
+        avatarMap.set(p.id, p.avatar_url ?? null);
+        displayNameMap.set(p.id, p.display_name ?? null);
+      });
+    }
+
+    const normalized: DBStory[] = rawStories.map((st) => {
+      const profileArr = toArray(st.profiles);
+      const profile0 = profileArr[0] ?? null;
+      const avatar =
+        profile0?.avatar_url ??
+        (uid && st.author_id === uid ? userAvatar : null) ??
+        avatarMap.get(st.author_id) ?? null;
+      const display_name =
+        profile0?.display_name ?? displayNameMap.get(st.author_id) ?? null;
       return {
-        opacity: enter.value,
-        transform: [{ translateX: (1 - enter.value) * 14 }],
+        ...st,
+        profiles: [{
+          avatar_url: avatar,
+          is_admin: profile0?.is_admin ?? false,
+          created_at: profile0?.created_at ?? '',
+          display_name,
+        }],
       };
     });
 
-    async function loadFeed() {
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData.user?.id ?? null;
-      setUserId(uid);
+    setStories(normalized);
 
-      if (uid) {
-        const { data: me } = await supabase
-          .from('profiles')
-          .select('avatar_url')
-          .eq('id', uid)
-          .single<{ avatar_url: string | null }>();
-        setUserAvatar(me?.avatar_url ?? null);
-      } else {
-        setUserAvatar(null);
-      }
-
-      const { data: rows, error } = await supabase
-        .from('stories')
-        .select(`
-          id,
-          title,
-          body,
-          cover_url,
-          likes_count,
-          comments_count,
-          created_at,
-          author_id,
-          author_name,
-          category,
-          profiles!stories_author_id_fkey ( avatar_url, is_admin, created_at )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(100);
-
-      if (error) {
-        console.warn(error.message);
-        setStories([]);
-        setLikedSet(new Set());
-        isLoadedRef.current = true;
-        return;
-      }
-
-      const rawStories = (rows ?? []) as DBStory[];
-
-      const authorIds = Array.from(new Set(rawStories.map((s) => s.author_id)));
-      let avatarMap = new Map<string, string | null>();
-
-      if (authorIds.length) {
-        const { data: profRows } = await supabase.from('profiles').select('id, avatar_url').in('id', authorIds);
-        (profRows ?? []).forEach((p: any) => {
-          avatarMap.set(p.id as string, (p.avatar_url ?? null) as string | null);
-        });
-      }
-
-      const normalized: DBStory[] = rawStories.map((st) => {
-        const embedded = st.profiles?.[0]?.avatar_url ?? null;
-        const fallback =
-          (uid && st.author_id === uid ? userAvatar : null) ?? avatarMap.get(st.author_id) ?? null;
-
-        if (embedded) return st;
-
-        return {
-          ...st,
-          profiles: [
-            {
-              avatar_url: fallback,
-              is_admin: st.profiles?.[0]?.is_admin ?? false,
-              created_at: st.profiles?.[0]?.created_at ?? '',
-            },
-          ],
-        };
-      });
-
-      setStories(normalized);
-
-      if (uid && normalized.length) {
-        const ids = normalized.map((r) => r.id);
-        const { data: likeRows, error: likeErr } = await supabase
-          .from('story_likes')
-          .select('story_id')
-          .eq('user_id', uid)
-          .in('story_id', ids);
-
-        if (!likeErr && likeRows) {
-          setLikedSet(new Set(likeRows.map((r) => r.story_id as string)));
-        } else {
-          setLikedSet(new Set());
-        }
+    if (uid && normalized.length) {
+      const ids = normalized.map((r) => r.id);
+      const { data: likeRows, error: likeErr } = await supabase
+        .from('story_likes').select('story_id').eq('user_id', uid).in('story_id', ids);
+      if (!likeErr && likeRows) {
+        setLikedSet(new Set(likeRows.map((r) => r.story_id as string)));
       } else {
         setLikedSet(new Set());
       }
-
-      isLoadedRef.current = true;
+    } else {
+      setLikedSet(new Set());
     }
 
-    // 👇 CARGA SOLO SI NO ESTÁ EN CACHÉ
-    useEffect(() => {
-      if (!isLoadedRef.current) {
-        loadFeed();
-      }
-    }, []);
-
-    // ✅ Animar cuando vuelves a este tab (sin recargar)
-    useFocusEffect(
-      useCallback(() => {
-        enter.value = 0;
-        enter.value = withTiming(1, {
-          duration: 220,
-          easing: Easing.out(Easing.cubic),
-        });
-      }, [])
-    );
-
-    const onRefresh = useCallback(async () => {
-      setRefreshing(true);
-      isLoadedRef.current = false; // 👈 FUERZA RECARGA
-      await loadFeed();
-      setRefreshing(false);
-    }, []);
-
-    // 👇 SCROLL AL TOP SIN RECARGAR
-    useEffect(() => {
-      const unsubscribe = navigation.addListener('tabPress', (e: any) => {
-        if (navigation.isFocused()) {
-          e.preventDefault?.();
-          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-        }
-      });
-      return unsubscribe;
-    }, [navigation]);
-
-    return (
-      <Animated.View style={[s.screen, enterStyle]}>
-        <FlatList
-          ref={flatListRef}
-          data={stories}
-          keyExtractor={(it) => it.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
-          ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textPrimary} />}
-          renderItem={({ item }) => (
-            <StoryCard
-              item={item}
-              liked={likedSet.has(item.id)}
-              onToggleLike={async (id) => {
-                const { data: userData } = await supabase.auth.getUser();
-                const uid = userData.user?.id;
-                if (!uid) return;
-
-                const isLiked = likedSet.has(id);
-
-                try {
-                  if (isLiked) {
-                    await unlike(id);
-                    setLikedSet((prev) => {
-                      const next = new Set(prev);
-                      next.delete(id);
-                      return next;
-                    });
-                    setStories((prev) =>
-                      prev.map((st) =>
-                        st.id === id ? { ...st, likes_count: Math.max(0, (st.likes_count || 0) - 1) } : st
-                      )
-                    );
-                  } else {
-                    await like(id);
-                    setLikedSet((prev) => new Set(prev).add(id));
-                    setStories((prev) => prev.map((st) => (st.id === id ? { ...st, likes_count: (st.likes_count || 0) + 1 } : st)));
-                  }
-                } catch (error) {
-                  console.error('Error toggling like:', error);
-                }
-              }}
-            />
-          )}
-          ListEmptyComponent={
-            <Text style={{ color: C.textSecondary, textAlign: 'center', marginTop: 24 }}>Aún no hay historias.</Text>
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      </Animated.View>
-    );
+    isLoadedRef.current = true;
+    setLoading(false);
   }
 
-  function getCategoryIcon(category: string) {
-    switch (category) {
-      case 'Mitos':
-        return <AntDesign name="gitlab" size={12} color={C.categoryText} />;
-      case 'Leyenda':
-        return <AntDesign name="dingding" size={12} color={C.categoryText} />;
-      case 'Urbana':
-        return <AntDesign name="heat-map" size={12} color={C.categoryText} />;
-      default:
-        return null;
-    }
-  }
+  useEffect(() => {
+    if (!isLoadedRef.current) loadFeed();
+  }, []);
 
-  function StoryCard({
-    item,
-    liked,
-    onToggleLike,
-  }: {
-    item: DBStory;
-    liked: boolean;
-    onToggleLike: (id: string) => void;
-  }) {
-    const router = useRouter();
-    const [isLiking, setIsLiking] = useState(false);
-    const [showLikesModal, setShowLikesModal] = useState(false);
-    const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
-    const [loadingLikes, setLoadingLikes] = useState(false);
+  // ✅ useFocusEffect solo para scroll al top — SIN animación de entrada
+  useFocusEffect(
+    useCallback(() => {
+      // nada aquí — solo lo dejamos por si quieres agregar algo en el futuro
+    }, [])
+  );
 
-    const hasCover = !!item.cover_url;
-    const author = item.author_name?.trim() || 'Autor';
-    const avatar = item.profiles?.[0]?.avatar_url ?? null;
-    const isAdmin = item.profiles?.[0]?.is_admin ?? false;
-    const createdAt = item.profiles?.[0]?.created_at ?? '';
-    const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    isLoadedRef.current = false;
+    await loadFeed();
+    setRefreshing(false);
+  }, []);
 
-    const excerpt = useMemo(() => {
-      const txt = item.body || '';
-      if (txt.length <= 140) return txt;
-      return txt.slice(0, 140) + '…';
-    }, [item.body]);
-
-    const handleLikePress = async () => {
-      if (isLiking) return;
-      setIsLiking(true);
-      try {
-        await onToggleLike(item.id);
-      } finally {
-        setIsLiking(false);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('tabPress', (e: any) => {
+      if (navigation.isFocused()) {
+        e.preventDefault?.();
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }
-    };
+    });
+    return unsubscribe;
+  }, [navigation]);
 
-    const handleShowLikes = async () => {
-      setShowLikesModal(true);
-      setLoadingLikes(true);
-
-      try {
-        const { data: likes, error } = await supabase
-          .from('story_likes')
-          .select(`
-            user_id,
-            profiles!story_likes_user_id_fkey (
-              id,
-              display_name,
-              avatar_url,
-              is_admin,
-              created_at
-            )
-          `)
-          .eq('story_id', item.id);
-
-        if (error) throw error;
-
-        const users: LikeUser[] = (likes ?? []).map((likeRow: any) => ({
-          id: likeRow.profiles.id,
-          display_name: likeRow.profiles.display_name,
-          avatar_url: likeRow.profiles.avatar_url,
-          is_admin: likeRow.profiles.is_admin,
-          created_at: likeRow.profiles.created_at,
-        }));
-
-        setLikeUsers(users);
-      } catch (e: any) {
-        console.error('Error cargando likes:', e);
-      } finally {
-        setLoadingLikes(false);
-      }
-    };
-
-    const likesCount = item.likes_count ?? 0;
-    const commentsCount = item.comments_count ?? 0;
-
-    return (
-      <>
-        <View style={s.card}>
-          <Link href={{ pathname: '/profile/[id]', params: { id: item.author_id } }} asChild>
-            <TouchableOpacity activeOpacity={0.85} style={s.headerRow}>
-              {avatar ? (
-                <Image source={{ uri: avatar }} style={s.avatar} />
-              ) : (
-                <View
-                  style={[
-                    s.avatar,
-                    {
-                      backgroundColor: C.avatarBg,
-                      borderWidth: 1,
-                      borderColor: C.avatarBorder,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                  ]}
-                >
-                  <Ionicons name="person-outline" size={14} color={C.textSecondary} />
-                </View>
-              )}
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={s.author}>{author}</Text>
-                {isAdmin && <MaterialIcons name="verified" size={16} color="#FFD700" />}
-                {isEarlyUser && <MaterialIcons name="verified" size={16} color="#06B6D4" />}
-              </View>
-
-              <View style={s.categoryBadge}>
-                {getCategoryIcon(item.category)}
-                <Text style={s.categoryText}>{item.category}</Text>
-              </View>
-            </TouchableOpacity>
-          </Link>
-
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() =>
-              router.push({
-                pathname: '/story/[id]',
-                params: {
-                  id: item.id,
-                  title: item.title,
-                  author,
-                  body: item.body,
-                  cover: item.cover_url ?? '',
-                  likes: String(item.likes_count ?? 0),
-                  comments: String(item.comments_count ?? 0),
-                  source: 'home',
-                },
-              })
+  // ✅ View normal en vez de Animated.View con enterStyle — sin doble animación
+  return (
+    <View style={s.screen}>
+      {loading ? (
+        <FeedSkeleton />
+      ) : (
+        <Animated.View style={[{ flex: 1 }, contentStyle]}>
+          <FlatList
+            ref={flatListRef}
+            data={stories}
+            keyExtractor={(it) => it.id}
+            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={C.textPrimary}
+              />
             }
-          >
-            <Text style={s.cardTitle}>{item.title}</Text>
+            renderItem={({ item }) => (
+              <StoryCard
+                item={item}
+                liked={likedSet.has(item.id)}
+                onToggleLike={async (id) => {
+                  const { data: userData } = await supabase.auth.getUser();
+                  const uid = userData.user?.id;
+                  if (!uid) return;
+                  const isLiked = likedSet.has(id);
+                  try {
+                    if (isLiked) {
+                      await unlike(id);
+                      setLikedSet((prev) => { const next = new Set(prev); next.delete(id); return next; });
+                      setStories((prev) => prev.map((st) =>
+                        st.id === id ? { ...st, likes_count: Math.max(0, (st.likes_count || 0) - 1) } : st
+                      ));
+                    } else {
+                      await like(id);
+                      setLikedSet((prev) => new Set(prev).add(id));
+                      setStories((prev) => prev.map((st) =>
+                        st.id === id ? { ...st, likes_count: (st.likes_count || 0) + 1 } : st
+                      ));
+                    }
+                  } catch (error) {
+                    console.error('Error toggling like:', error);
+                  }
+                }}
+              />
+            )}
+            ListEmptyComponent={
+              <Text style={{ color: C.textSecondary, textAlign: 'center', marginTop: 24 }}>
+                Aún no hay historias.
+              </Text>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        </Animated.View>
+      )}
+    </View>
+  );
+}
 
-            {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
+// ─── StoryCard ────────────────────────────────────────────────────────────────
+function StoryCard({
+  item, liked, onToggleLike,
+}: {
+  item: DBStory; liked: boolean; onToggleLike: (id: string) => void;
+}) {
+  const router = useRouter();
+  const navLock = useRef(false);
+  const [opening, setOpening] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [showLikesModal, setShowLikesModal] = useState(false);
+  const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
+  const [loadingLikes, setLoadingLikes] = useState(false);
 
-            <Text style={[s.excerpt, !hasCover && { marginTop: 6 }]}>{excerpt}</Text>
+  const hasCover = !!item.cover_url;
+  const profileArr = toArray(item.profiles);
+  const author = profileArr[0]?.display_name?.trim() || 'Autor';
+  const avatar = profileArr[0]?.avatar_url ?? null;
+  const isAdmin = profileArr[0]?.is_admin ?? false;
+  const createdAt = profileArr[0]?.created_at ?? '';
+  const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
-            <View style={s.footerRow}>
-              <TouchableOpacity style={s.meta} onPress={handleLikePress} activeOpacity={0.8} disabled={isLiking}>
-                <Ionicons
-                  name={liked ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={liked ? C.like : C.textSecondary}
-                  style={{ opacity: isLiking ? 0.5 : 1 }}
-                />
-              </TouchableOpacity>
+  const excerpt = useMemo(() => {
+    const txt = (item.body || '').trim();
+    const normalized = txt.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+/g, ' ');
+    const lines = normalized.split('\n');
+    const wasCutByLines = lines.length > 3;
+    const firstLines = lines.slice(0, 3).join('\n');
+    const wasCutByChars = firstLines.length > 140;
+    const sliced = wasCutByChars ? firstLines.slice(0, 140).trimEnd() : firstLines;
+    return { text: sliced, truncated: wasCutByLines || wasCutByChars };
+  }, [item.body]);
 
-              <TouchableOpacity
-                style={[s.metaText, { marginLeft: 4 }]}
-                onPress={handleShowLikes}
-                activeOpacity={0.8}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={[s.metaTxt, liked && { color: C.like }]}>
-                  {likesCount} {likesCount === 1 ? 'Like' : 'Likes'}
-                </Text>
-              </TouchableOpacity>
+  const handleLikePress = async () => {
+    if (isLiking) return;
+    setIsLiking(true);
+    try { await onToggleLike(item.id); } finally { setIsLiking(false); }
+  };
 
-              <View style={[s.meta, { marginLeft: 16 }]}>
-                <Ionicons name="chatbox-outline" size={20} color={C.textSecondary} />
+  const handleShowLikes = async () => {
+    setShowLikesModal(true);
+    setLoadingLikes(true);
+    try {
+      const { data: likes, error } = await supabase
+        .from('story_likes')
+        .select(`user_id, profiles!story_likes_user_id_fkey ( id, display_name, avatar_url, is_admin, created_at )`)
+        .eq('story_id', item.id);
+      if (error) throw error;
+      const users: LikeUser[] = (likes ?? []).map((likeRow: any) => ({
+        id: likeRow.profiles.id,
+        display_name: likeRow.profiles.display_name,
+        avatar_url: likeRow.profiles.avatar_url,
+        is_admin: likeRow.profiles.is_admin,
+        created_at: likeRow.profiles.created_at,
+      }));
+      setLikeUsers(users);
+    } catch (e: any) {
+      console.error('Error cargando likes:', e);
+    } finally {
+      setLoadingLikes(false);
+    }
+  };
+
+  const likesCount = item.likes_count ?? 0;
+  const commentsCount = item.comments_count ?? 0;
+
+  return (
+    <>
+      <View style={s.card}>
+        <Link href={{ pathname: '/profile/[id]', params: { id: item.author_id } }} asChild>
+          <TouchableOpacity activeOpacity={0.85} style={s.headerRow} disabled={opening}>
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={s.avatar} />
+            ) : (
+              <View style={[s.avatar, {
+                backgroundColor: C.avatarBg, borderWidth: 1,
+                borderColor: C.avatarBorder, alignItems: 'center', justifyContent: 'center',
+              }]}>
+                <Ionicons name="person-outline" size={14} color={C.textSecondary} />
               </View>
-
-              <View style={[s.metaText, { marginLeft: 4 }]}>
-                <Text style={s.metaTxt}>
-                  {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
-                </Text>
-              </View>
+            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={s.author}>{author}</Text>
+              {isAdmin && <MaterialIcons name="verified" size={16} color="#FFD700" />}
+              {isEarlyUser && <MaterialIcons name="verified" size={16} color="#06B6D4" />}
             </View>
           </TouchableOpacity>
-        </View>
+        </Link>
 
-        <Modal visible={showLikesModal} transparent animationType="fade">
-          <View style={s.likesOverlay}>
-            <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
-            <View style={s.likesSheet}>
-              <View style={s.likesHeader}>
-                <Text style={s.likesTitle}>Les dio like</Text>
-                <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
-                  <Ionicons name="close" size={24} color={C.textPrimary} />
-                </TouchableOpacity>
-              </View>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          disabled={opening}
+          onPress={() => {
+            if (navLock.current) return;
+            navLock.current = true;
+            setOpening(true);
+            router.push({
+              pathname: '/story/[id]',
+              params: {
+                id: item.id, title: item.title, author,
+                body: item.body, cover: item.cover_url ?? '',
+                likes: String(item.likes_count ?? 0),
+                comments: String(item.comments_count ?? 0),
+                source: 'home',
+              },
+            });
+            setTimeout(() => { navLock.current = false; setOpening(false); }, 900);
+          }}
+        >
+          <Text style={s.cardTitle}>{item.title}</Text>
+          {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
+          <View style={!hasCover ? { marginTop: 6 } : undefined}>
+            <Text style={s.excerpt} numberOfLines={3}>
+              {excerpt.text}
+              {excerpt.truncated && <Text style={s.excerptMore}> … Ver más</Text>}
+            </Text>
+          </View>
 
-              {loadingLikes ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color={C.textPrimary} />
-                </View>
-              ) : likeUsers.length === 0 ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                  <Text style={{ color: C.textSecondary }}>Sin likes aún</Text>
-                </View>
-              ) : (
-                <FlatList
-                  data={likeUsers}
-                  keyExtractor={(it) => it.id}
-                  contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
-                  ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                  renderItem={({ item: user }) => {
-                    const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
-                    return (
-                      <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
-                        <TouchableOpacity
-                          style={s.likeUserCard}
-                          onPress={() => {
-                            setShowLikesModal(false);
-                          }}
-                        >
-                          {user.avatar_url ? (
-                            <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
-                          ) : (
-                            <View style={[s.likeUserAvatar, { backgroundColor: C.avatarBg, alignItems: 'center', justifyContent: 'center' }]}>
-                              <Ionicons name="person-outline" size={16} color={C.textSecondary} />
-                            </View>
-                          )}
-
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                            <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                            {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
-                            {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
-                          </View>
-
-                          <Ionicons
-                            name="chevron-forward"
-                            size={20}
-                            color={C.textSecondary}
-                            style={{ marginLeft: 'auto' }}
-                          />
-                        </TouchableOpacity>
-                      </Link>
-                    );
-                  }}
-                />
-              )}
+          <View style={s.footerRow}>
+            <TouchableOpacity style={s.meta} onPress={handleLikePress} activeOpacity={0.8} disabled={isLiking}>
+              <Ionicons
+                name={liked ? 'heart' : 'heart-outline'} size={20}
+                color={liked ? C.like : C.textSecondary}
+                style={{ opacity: isLiking ? 0.5 : 1 }}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.metaText, { marginLeft: 4 }]} onPress={handleShowLikes}
+              activeOpacity={0.8} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={[s.metaTxt, liked && { color: C.like }]}>
+                {likesCount} {likesCount === 1 ? 'Like' : 'Likes'}
+              </Text>
+            </TouchableOpacity>
+            <View style={[s.meta, { marginLeft: 16 }]}>
+              <Ionicons name="chatbox-outline" size={20} color={C.textSecondary} />
+            </View>
+            <View style={[s.metaText, { marginLeft: 4 }]}>
+              <Text style={s.metaTxt}>
+                {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
+              </Text>
             </View>
           </View>
-        </Modal>
-      </>
-    );
-  }
+        </TouchableOpacity>
+      </View>
 
-  const s = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: C.bg },
-    card: {
-      backgroundColor: C.card,
-      borderRadius: 16,
-      overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: C.cardBorder,
-      padding: 12,
-    },
-    headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-    avatar: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      backgroundColor: C.avatarBg,
-      borderWidth: 1,
-      borderColor: C.avatarBorder,
-    },
-    author: { color: C.textPrimary, fontWeight: '600' },
-    categoryBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      backgroundColor: C.categoryBg,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 6,
-      marginLeft: 'auto',
-    },
-    categoryText: {
-      color: C.categoryText,
-      fontSize: 11,
-      fontWeight: '600',
-    },
-    cardTitle: { color: C.textPrimary, fontWeight: '700', fontSize: 18, marginBottom: 8 },
-    cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, marginBottom: 8 },
-    excerpt: { color: '#E4E4E7', lineHeight: 20 },
-    footerRow: {
-      marginTop: 8,
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderTopWidth: 1,
-      borderTopColor: C.line,
-      paddingTop: 12,
-    },
-    meta: { flexDirection: 'row', alignItems: 'center' },
-    metaText: { flexDirection: 'row', alignItems: 'center' },
-    metaTxt: { color: C.textSecondary, fontSize: 14, fontWeight: '600' },
+      <Modal visible={showLikesModal} transparent animationType="fade">
+        <View style={s.likesOverlay}>
+          <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
+          <View style={s.likesSheet}>
+            <View style={s.likesHeader}>
+              <Text style={s.likesTitle}>Les dio like</Text>
+              <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
+                <Ionicons name="close" size={24} color={C.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {loadingLikes ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={C.textPrimary} />
+              </View>
+            ) : likeUsers.length === 0 ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <Text style={{ color: C.textSecondary }}>Sin likes aún</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={likeUsers}
+                keyExtractor={(it) => it.id}
+                contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                renderItem={({ item: user }) => {
+                  const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
+                  return (
+                    <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
+                      <TouchableOpacity style={s.likeUserCard} onPress={() => setShowLikesModal(false)}>
+                        {user.avatar_url ? (
+                          <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
+                        ) : (
+                          <View style={[s.likeUserAvatar, {
+                            backgroundColor: C.avatarBg, alignItems: 'center', justifyContent: 'center',
+                          }]}>
+                            <Ionicons name="person-outline" size={16} color={C.textSecondary} />
+                          </View>
+                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                          <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
+                          {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
+                          {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={C.textSecondary} style={{ marginLeft: 'auto' }} />
+                      </TouchableOpacity>
+                    </Link>
+                  );
+                }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
 
-    likesOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      justifyContent: 'flex-end',
-    },
-    likeBackdrop: {
-      position: 'absolute',
-      width: '100%',
-      height: '100%',
-    },
-    likesSheet: {
-      backgroundColor: C.card,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      borderTopWidth: 1,
-      borderColor: C.cardBorder,
-      maxHeight: '75%',
-      zIndex: 10,
-    },
-    likesHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: C.cardBorder,
-    },
-    likesTitle: {
-      color: C.textPrimary,
-      fontSize: 18,
-      fontWeight: '700',
-    },
-    likeUserCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: C.card,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: C.cardBorder,
-      padding: 12,
-      gap: 12,
-    },
-    likeUserAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: C.avatarBorder,
-    },
-    likeUserName: {
-      color: C.textPrimary,
-      fontWeight: '600',
-    },
-  });
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: C.bg },
+  card: {
+    backgroundColor: C.card, borderRadius: 16, overflow: 'hidden',
+    borderWidth: 1, borderColor: C.cardBorder, padding: 12,
+  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  avatar: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: C.avatarBg, borderWidth: 1, borderColor: C.avatarBorder,
+  },
+  author: { color: C.textPrimary, fontWeight: '600' },
+  cardTitle: { color: C.textPrimary, fontWeight: '700', fontSize: 18, marginBottom: 8 },
+  cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, marginBottom: 8 },
+  excerpt: { color: '#E4E4E7', lineHeight: 20 },
+  excerptMore: { color: '#6B7280', fontSize: 13, fontWeight: '600' },
+  footerRow: {
+    marginTop: 8, flexDirection: 'row', alignItems: 'center',
+    borderTopWidth: 1, borderTopColor: C.line, paddingTop: 12,
+  },
+  meta: { flexDirection: 'row', alignItems: 'center' },
+  metaText: { flexDirection: 'row', alignItems: 'center' },
+  metaTxt: { color: C.textSecondary, fontSize: 14, fontWeight: '600' },
+  likesOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  likeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
+  likesSheet: {
+    backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    borderTopWidth: 1, borderColor: C.cardBorder, maxHeight: '75%', zIndex: 10,
+  },
+  likesHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: C.cardBorder,
+  },
+  likesTitle: { color: C.textPrimary, fontSize: 18, fontWeight: '700' },
+  likeUserCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: C.card,
+    borderRadius: 12, borderWidth: 1, borderColor: C.cardBorder, padding: 12, gap: 12,
+  },
+  likeUserAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: C.avatarBorder },
+  likeUserName: { color: C.textPrimary, fontWeight: '600' },
+});

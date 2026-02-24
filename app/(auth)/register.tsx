@@ -16,15 +16,12 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import { supabase } from '../../lib/supabase';
-
-// 👇 DESCOMENTAR ESTO PARA PERMITIR CORREOS GMAIL NORMALES
-//const ALLOW_ANY_EMAIL = true;
-const ALLOW_ANY_EMAIL = false; // Solo UNIPAZ
+import { TERMS, PRIVACY, LegalSection } from '../../lib/legal';
 
 const C = {
   bg: '#000000ff',
@@ -32,12 +29,84 @@ const C = {
   cardBorder: '#181818ff',
   textPrimary: '#F3F4F6',
   textSecondary: '#A1A1AA',
-  line: '#000000ff',
   avatarBg: '#0F1016',
   avatarBorder: '#2C2C33',
-  like: '#ef4444',
+  accent: '#93C5FD',
 };
 
+// ─── Modal reutilizable para mostrar Terms o Privacy ─────────────────────────
+function LegalModal({
+  visible,
+  sections,
+  onClose,
+  insetBottom,
+}: {
+  visible: boolean;
+  sections: LegalSection[];
+  onClose: () => void;
+  insetBottom: number;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={[sl.overlay, { paddingBottom: insetBottom }]}>
+        <Pressable style={sl.backdrop} onPress={onClose} />
+        <View style={sl.sheet}>
+          {/* Header */}
+          <View style={sl.sheetHeader}>
+            <Text style={sl.sheetHeaderTitle}>
+              {sections[0]?.title ?? ''}
+            </Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={22} color={C.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Contenido */}
+          <ScrollView
+            style={sl.scrollArea}
+            contentContainerStyle={sl.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {sections.map((section, i) => (
+              <View key={i} style={sl.section}>
+                {section.isHeader ? (
+                  <Text style={sl.subtitle}>{section.subtitle}</Text>
+                ) : (
+                  <>
+                    <Text style={sl.sectionTitle}>{section.title}</Text>
+                    {section.body && (
+                      <Text style={sl.sectionBody}>{section.body}</Text>
+                    )}
+                    {section.bullets?.map((b, j) => (
+                      <View key={j} style={sl.bulletRow}>
+                        <Text style={sl.bullet}>•</Text>
+                        <Text style={sl.bulletText}>{b}</Text>
+                      </View>
+                    ))}
+                    {section.note && (
+                      <View style={sl.noteBox}>
+                        <Text style={sl.noteText}>{section.note}</Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* Botón cerrar */}
+          <View style={sl.closeFooter}>
+            <TouchableOpacity style={sl.closeBtn} onPress={onClose} activeOpacity={0.8}>
+              <Text style={sl.closeBtnText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Pantalla principal ───────────────────────────────────────────────────────
 export default function Register() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -50,12 +119,15 @@ export default function Register() {
   const [showPass, setShowPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  const [showTermsSheet, setShowTermsSheet] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [showConfirmSheet, setShowConfirmSheet] = useState(false);
 
-  const [sheet, setSheet] = useState<{
+  // Modales legales
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
+  // Modal de notificación
+  const [showNotifSheet, setShowNotifSheet] = useState(false);
+  const [notif, setNotif] = useState<{
     title: string;
     message: string;
     confirmText: string;
@@ -65,62 +137,29 @@ export default function Register() {
     title: '',
     message: '',
     confirmText: 'OK',
-    onConfirm: () => setShowConfirmSheet(false),
+    onConfirm: () => setShowNotifSheet(false),
     variant: 'info',
   });
 
-  function redirectUrl() {
-    return Linking.createURL('/auth/callback');
+  function showNotification(
+    title: string,
+    message: string,
+    variant: 'info' | 'error' = 'info',
+    confirmText = 'Cerrar',
+    onConfirm?: () => void
+  ) {
+    setNotif({
+      title,
+      message,
+      confirmText,
+      variant,
+      onConfirm: onConfirm ?? (() => setShowNotifSheet(false)),
+    });
+    setShowNotifSheet(true);
   }
 
-  const scrollToInput = (yOffset: number) => {
-    scrollViewRef.current?.scrollTo({
-      y: yOffset,
-      animated: true,
-    });
-  };
-
-  async function completeRegister() {
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim().toLowerCase();
-
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password: pass,
-        options: {
-          data: { display_name: trimmedName },
-          emailRedirectTo: redirectUrl(),
-        },
-      });
-      if (error) throw error;
-
-      setShowTermsSheet(false);
-      setSheet({
-        title: 'Confirma tu correo',
-        message:
-          'Te enviamos un correo de verificación. Abre el email, confirma tu cuenta y luego inicia sesión.',
-        confirmText: 'Ir a iniciar sesión',
-        onConfirm: () => {
-          setShowConfirmSheet(false);
-          router.push('/(auth)/login');
-        },
-        variant: 'info',
-      });
-      setShowConfirmSheet(true);
-    } catch (e: any) {
-      setSheet({
-        title: 'Error',
-        message: e?.message ?? 'No se pudo registrar.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
-    } finally {
-      setLoading(false);
-    }
+  function redirectUrl() {
+    return Linking.createURL('/auth/callback');
   }
 
   async function onRegister() {
@@ -128,61 +167,69 @@ export default function Register() {
     const trimmedEmail = email.trim().toLowerCase();
 
     if (!trimmedName || !trimmedEmail || !pass.trim() || !confirmPass.trim()) {
-      setSheet({
-        title: 'Campos faltantes',
-        message: 'Nombre, correo, contraseña y confirmación son obligatorios.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
+      showNotification(
+        'Campos faltantes',
+        'Nombre, correo, contraseña y confirmación son obligatorios.',
+        'error'
+      );
       return;
     }
 
     if (pass !== confirmPass) {
-      setSheet({
-        title: 'Contraseñas no coinciden',
-        message: 'Las contraseñas no son iguales. Intenta de nuevo.',
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
+      showNotification(
+        'Contraseñas no coinciden',
+        'Las contraseñas no son iguales. Intenta de nuevo.',
+        'error'
+      );
       return;
     }
 
-    // Validación de correo con variable
-    const isValidEmail = ALLOW_ANY_EMAIL 
-      ? trimmedEmail.endsWith('@gmail.com') || trimmedEmail.endsWith('@unipaz.edu.co')
-      : trimmedEmail.endsWith('@unipaz.edu.co');
-
-    if (!isValidEmail) {
-      const message = ALLOW_ANY_EMAIL
-        ? 'Solo se permiten correos de UNIPAZ (@unipaz.edu.co) o Gmail.'
-        : 'Solo se permiten correos institucionales de la UNIPAZ (@unipaz.edu.co).';
-      
-      setSheet({
-        title: 'Correo no permitido',
-        message,
-        confirmText: 'Cerrar',
-        onConfirm: () => setShowConfirmSheet(false),
-        variant: 'error',
-      });
-      setShowConfirmSheet(true);
+    if (!acceptedTerms) {
+      showNotification(
+        'Términos requeridos',
+        'Debes aceptar los Términos y la Política de Privacidad para continuar.',
+        'error'
+      );
       return;
     }
 
-    // Mostrar modal de términos
-    setAcceptedTerms(false);
-    setShowTermsSheet(true);
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password: pass,
+        options: {
+          data: { 
+            display_name: trimmedName,
+            username: trimmedName  // misma variable, mismo campo
+          },
+          emailRedirectTo: redirectUrl(),
+        },
+      });
+      if (error) throw error;
+
+      showNotification(
+        'Confirma tu correo',
+        'Te enviamos un correo de verificación. Ábrelo, confirma tu cuenta y luego inicia sesión.',
+        'info',
+        'Ir a iniciar sesión',
+        () => {
+          setShowNotifSheet(false);
+          router.push('/(auth)/login');
+        }
+      );
+    } catch (e: any) {
+      showNotification('Error', e?.message ?? 'No se pudo registrar.', 'error');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <View style={{ flex: 1 }}>
       <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
-      
       <View style={s.overlayFixed} pointerEvents="none" />
-      
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -206,15 +253,16 @@ export default function Register() {
               </View>
 
               <View style={s.card}>
+                {/* Nombre */}
                 <TextInput
                   placeholder="Nombre de usuario"
                   placeholderTextColor={C.textSecondary}
                   style={s.input}
                   value={name}
                   onChangeText={setName}
-                  onFocus={() => scrollToInput(0)}
                 />
 
+                {/* Correo */}
                 <TextInput
                   placeholder="Correo"
                   placeholderTextColor={C.textSecondary}
@@ -224,9 +272,9 @@ export default function Register() {
                   style={[s.input, { marginTop: 12 }]}
                   value={email}
                   onChangeText={setEmail}
-                  onFocus={() => scrollToInput(80)}
                 />
 
+                {/* Contraseña */}
                 <View style={s.pwdWrap}>
                   <TextInput
                     placeholder="Contraseña"
@@ -237,10 +285,9 @@ export default function Register() {
                     style={[s.input, s.inputPwd]}
                     value={pass}
                     onChangeText={setPass}
-                    onFocus={() => scrollToInput(160)}
                   />
                   <TouchableOpacity
-                    onPress={() => setShowPass(v => !v)}
+                    onPress={() => setShowPass((v) => !v)}
                     style={s.eyeBtn}
                     hitSlop={10}
                   >
@@ -252,6 +299,7 @@ export default function Register() {
                   </TouchableOpacity>
                 </View>
 
+                {/* Confirmar contraseña */}
                 <View style={[s.pwdWrap, { marginTop: 12 }]}>
                   <TextInput
                     placeholder="Confirmar contraseña"
@@ -264,10 +312,9 @@ export default function Register() {
                     onChangeText={setConfirmPass}
                     returnKeyType="go"
                     onSubmitEditing={onRegister}
-                    onFocus={() => scrollToInput(240)}
                   />
                   <TouchableOpacity
-                    onPress={() => setShowConfirmPass(v => !v)}
+                    onPress={() => setShowConfirmPass((v) => !v)}
                     style={s.eyeBtn}
                     hitSlop={10}
                   >
@@ -279,11 +326,43 @@ export default function Register() {
                   </TouchableOpacity>
                 </View>
 
+                {/* ✅ Checkbox siempre visible con links clickeables */}
+                <View style={s.checkRow}>
+                  <TouchableOpacity
+                    style={[s.checkBox, acceptedTerms && s.checkBoxChecked]}
+                    onPress={() => setAcceptedTerms((v) => !v)}
+                    hitSlop={8}
+                  >
+                    {acceptedTerms && (
+                      <Ionicons name="checkmark" size={14} color={C.textPrimary} />
+                    )}
+                  </TouchableOpacity>
+
+                  <Text style={s.checkLabel}>
+                    <Text style={s.checkLabelPlain}>Acepto los </Text>
+                    <Text
+                      style={s.checkLabelLink}
+                      onPress={() => setShowTermsModal(true)}
+                    >
+                      Términos y Condiciones
+                    </Text>
+                    <Text style={s.checkLabelPlain}> y la </Text>
+                    <Text
+                      style={s.checkLabelLink}
+                      onPress={() => setShowPrivacyModal(true)}
+                    >
+                      Política de Privacidad
+                    </Text>
+                    <Text style={s.checkLabelPlain}>.</Text>
+                  </Text>
+                </View>
+
+                {/* Botón crear */}
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  style={[s.btn, loading && { opacity: 0.6 }]}
+                  style={[s.btn, (!acceptedTerms || loading) && { opacity: 0.45 }]}
                   onPress={onRegister}
-                  disabled={loading}
+                  disabled={!acceptedTerms || loading}
                 >
                   {loading ? (
                     <ActivityIndicator color={C.textPrimary} />
@@ -293,12 +372,10 @@ export default function Register() {
                 </TouchableOpacity>
 
                 <View style={s.footer}>
-                  <View style={s.footer}>
-                    <Text style={s.footerText}>¿Ya tienes cuenta? </Text>
-                    <TouchableOpacity onPress={() => router.back()}>
-                      <Text style={s.link}>Inicia sesión</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <Text style={s.footerText}>¿Ya tienes cuenta? </Text>
+                  <TouchableOpacity onPress={() => router.back()}>
+                    <Text style={s.link}>Inicia sesión</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </View>
@@ -306,82 +383,54 @@ export default function Register() {
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
-      {/* MODAL TÉRMINOS Y CONDICIONES */}
+      {/* ── Modal Términos ───────────────────────────────────────────────── */}
+      <LegalModal
+        visible={showTermsModal}
+        sections={TERMS}
+        onClose={() => setShowTermsModal(false)}
+        insetBottom={insets.bottom}
+      />
+
+      {/* ── Modal Privacidad ─────────────────────────────────────────────── */}
+      <LegalModal
+        visible={showPrivacyModal}
+        sections={PRIVACY}
+        onClose={() => setShowPrivacyModal(false)}
+        insetBottom={insets.bottom}
+      />
+
+      {/* ── Modal notificación ───────────────────────────────────────────── */}
       <Modal
-        visible={showTermsSheet}
+        visible={showNotifSheet}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowTermsSheet(false)}
-      >
-        <View style={[s.termsOverlay, { paddingBottom: insets.bottom }]}>
-          <Pressable style={s.termsBackdrop} onPress={() => setShowTermsSheet(false)} />
-          <View style={s.termsSheet}>
-            <Text style={s.termsTitle}>Términos y Condiciones</Text>
-            <Text style={s.termsText}>
-              Al crear una cuenta, aceptas nuestros términos y condiciones. Tu contenido debe ser respetable y acorde con los valores institucionales de la UNIPAZ.
-            </Text>
-
-            <View style={s.termsCheckbox}>
-              <TouchableOpacity
-                style={[s.checkBox, acceptedTerms && s.checkBoxChecked]}
-                onPress={() => setAcceptedTerms(!acceptedTerms)}
-              >
-                {acceptedTerms && (
-                  <Ionicons name="checkmark" size={16} color={C.textPrimary} />
-                )}
-              </TouchableOpacity>
-              <Text style={s.checkText}>Acepto los términos y condiciones</Text>
-            </View>
-
-            <TouchableOpacity
-              style={[s.termsBtn, !acceptedTerms && { opacity: 0.5 }]}
-              onPress={completeRegister}
-              disabled={!acceptedTerms || loading}
-            >
-              {loading ? (
-                <ActivityIndicator color={C.textPrimary} />
-              ) : (
-                <Text style={s.termsBtnText}>Crear cuenta</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* MODAL NOTIFICACIÓN */}
-      <Modal
-        visible={showConfirmSheet}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowConfirmSheet(false)}
+        onRequestClose={() => setShowNotifSheet(false)}
       >
         <View style={[s.overlay, { paddingBottom: insets.bottom }]}>
-          <Pressable style={s.backdrop} onPress={() => setShowConfirmSheet(false)} />
+          <Pressable style={s.backdrop} onPress={() => setShowNotifSheet(false)} />
           <View style={s.sheet}>
             <View
               style={[
                 s.iconWrap,
-                sheet.variant === 'error'
+                notif.variant === 'error'
                   ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
                   : { backgroundColor: C.avatarBg, borderColor: C.avatarBorder },
               ]}
             >
               <Ionicons
-                name={sheet.variant === 'error' ? 'alert-circle' : 'information-circle'}
+                name={notif.variant === 'error' ? 'alert-circle' : 'information-circle'}
                 size={24}
-                color={sheet.variant === 'error' ? '#F87171' : '#93C5FD'}
+                color={notif.variant === 'error' ? '#F87171' : C.accent}
               />
             </View>
-
-            <Text style={s.sheetTitle}>{sheet.title}</Text>
-            <Text style={s.sheetMsg}>{sheet.message}</Text>
-
+            <Text style={s.sheetTitle}>{notif.title}</Text>
+            <Text style={s.sheetMsg}>{notif.message}</Text>
             <View style={s.sheetActions}>
               <TouchableOpacity
                 style={[s.sheetBtn, s.sheetBtnPrimary]}
-                onPress={sheet.onConfirm}
+                onPress={notif.onConfirm}
               >
-                <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
+                <Text style={s.sheetBtnText}>{notif.confirmText}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -391,28 +440,15 @@ export default function Register() {
   );
 }
 
+// ─── Estilos base ─────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-  },
-
-  wrap: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-  },
-
+  scrollContent: { flexGrow: 1, justifyContent: 'center' },
+  wrap: { flex: 1, padding: 20, justifyContent: 'center' },
   overlayFixed: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-
-  bgImg: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 1,
-  },
-
+  bgImg: { ...StyleSheet.absoluteFillObject, opacity: 1 },
   logoFrame: {
     alignSelf: 'center',
     marginBottom: 1,
@@ -420,12 +456,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   logoImg: { width: 250, height: 250 },
-
   card: { gap: 0 },
-
   input: {
     backgroundColor: '#0f0f0fff',
-    borderWidth: 0,
     borderRadius: 10,
     paddingHorizontal: 16,
     height: 48,
@@ -457,9 +490,35 @@ const s = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
   },
-
+  // ✅ Checkbox row
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 20,
+    paddingHorizontal: 4,
+    gap: 10,
+  },
+  checkBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: C.avatarBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  checkBoxChecked: { backgroundColor: C.avatarBg, borderColor: C.accent },
+  checkLabel: { flex: 1, lineHeight: 20 },
+  checkLabelPlain: { color: C.textSecondary, fontSize: 13 },
+  checkLabelLink: {
+    color: C.accent,
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
   btn: {
-    marginTop: 50,
+    marginTop: 18,
     height: 48,
     width: '50%',
     borderRadius: 10,
@@ -471,85 +530,10 @@ const s = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   btnText: { color: C.textPrimary, fontWeight: '600' },
-
-  footer: {
-    marginTop: 16,
-    alignItems: 'center',
-  },
-  footerText: { color: C.textSecondary, textAlign: 'center', fontSize: 14 },
+  footer: { marginTop: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+  footerText: { color: C.textSecondary, fontSize: 14 },
   link: { color: C.textPrimary, textDecorationLine: 'underline', fontSize: 14 },
-
-  // TÉRMINOS
-  termsOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-  },
-  termsBackdrop: { flex: 1 },
-  termsSheet: {
-    width: '100%',
-    backgroundColor: C.card,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
-    borderTopWidth: 1,
-    borderColor: C.cardBorder,
-  },
-  termsTitle: {
-    color: C.textPrimary,
-    fontWeight: '700',
-    fontSize: 18,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  termsText: {
-    color: C.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  termsCheckbox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 4,
-  },
-  checkBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: C.avatarBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  checkBoxChecked: {
-    backgroundColor: C.avatarBg,
-    borderColor: '#93C5FD',
-  },
-  checkText: {
-    color: C.textPrimary,
-    fontSize: 14,
-    flex: 1,
-  },
-  termsBtn: {
-    height: 44,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: C.avatarBg,
-    borderWidth: 1,
-    borderColor: C.avatarBorder,
-  },
-  termsBtnText: {
-    fontWeight: '600',
-    color: C.textPrimary,
-    fontSize: 16,
-  },
-
-  // NOTIFICACIÓN
+  // Notificación
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -575,19 +559,9 @@ const s = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 8,
   },
-  sheetTitle: {
-    color: C.textPrimary,
-    fontWeight: '700',
-    fontSize: 18,
-    textAlign: 'center',
-  },
+  sheetTitle: { color: C.textPrimary, fontWeight: '700', fontSize: 18, textAlign: 'center' },
   sheetMsg: { color: C.textSecondary, textAlign: 'center', marginTop: 6 },
-  sheetActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-    justifyContent: 'center',
-  },
+  sheetActions: { flexDirection: 'row', gap: 10, marginTop: 16, justifyContent: 'center' },
   sheetBtn: {
     height: 44,
     paddingHorizontal: 24,
@@ -598,4 +572,89 @@ const s = StyleSheet.create({
   },
   sheetBtnPrimary: { backgroundColor: C.avatarBg, borderColor: C.avatarBorder },
   sheetBtnText: { fontWeight: '600', color: '#fff' },
+});
+
+// ─── Estilos del modal legal ──────────────────────────────────────────────────
+const sl = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'flex-end',
+  },
+  backdrop: { flex: 1 },
+  sheet: {
+    backgroundColor: '#010102ff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: '#181818ff',
+    height: '88%',      // ← altura fija para que flex funcione
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#181818ff',
+  },
+  sheetHeaderTitle: {
+    color: '#F3F4F6',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  scrollArea: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 8 },
+  section: { marginBottom: 18 },
+  subtitle: {
+    color: '#A1A1AA',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    color: '#F3F4F6',
+    fontWeight: '700',
+    fontSize: 14,
+    marginBottom: 6,
+  },
+  sectionBody: {
+    color: '#D1D5DB',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 4,
+    paddingLeft: 4,
+  },
+  bullet: { color: '#93C5FD', fontSize: 13, lineHeight: 20 },
+  bulletText: { color: '#D1D5DB', fontSize: 13, lineHeight: 20, flex: 1 },
+  noteBox: {
+    backgroundColor: '#0F1016',
+    borderLeftWidth: 3,
+    borderLeftColor: '#93C5FD',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+  },
+  noteText: { color: '#A1A1AA', fontSize: 12, lineHeight: 18 },
+  closeFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#181818ff',
+  },
+  closeBtn: {
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F1016',
+    borderWidth: 1,
+    borderColor: '#2C2C33',
+  },
+  closeBtnText: { fontWeight: '600', color: '#F3F4F6', fontSize: 15 },
 });
