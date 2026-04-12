@@ -18,6 +18,7 @@ import { Link, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
+import ShareStorySheet from '../../components/ShareStorySheet'; // ← NUEVO
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -125,7 +126,6 @@ function StoryCardSkeleton() {
 function PublicProfileSkeleton({ insetTop }: { insetTop: number }) {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      {/* Header falso sincronizado con el header real */}
       <View style={[sk.fakeHeader, { height: 56 + insetTop, paddingTop: insetTop }]}>
         <View style={sk.fakeHeaderBack} />
         <View style={sk.fakeHeaderTitle} />
@@ -208,7 +208,6 @@ export default function PublicProfile() {
       const storiesWithAuthor: DBStory[] = (mine ?? []).map((story: any) => {
         const embeddedArr = toArray(story.profiles);
         const current = embeddedArr[0];
-
         if (!current || current.display_name == null || current.avatar_url == null) {
           return {
             ...story,
@@ -218,7 +217,6 @@ export default function PublicProfile() {
             }],
           };
         }
-
         return { ...story, profiles: embeddedArr };
       });
       setStories(storiesWithAuthor);
@@ -247,9 +245,7 @@ export default function PublicProfile() {
             .in('id', ids);
           if (likedErr) throw likedErr;
 
-          const authorIds = Array.from(
-            new Set((liked ?? []).map((s: any) => s.author_id))
-          );
+          const authorIds = Array.from(new Set((liked ?? []).map((s: any) => s.author_id)));
           const pMap = new Map<string, { display_name: string | null; avatar_url: string | null }>();
           if (authorIds.length) {
             const { data: authorProfiles } = await supabase
@@ -257,10 +253,7 @@ export default function PublicProfile() {
               .select('id, display_name, avatar_url')
               .in('id', authorIds);
             (authorProfiles ?? []).forEach((p: any) => {
-              pMap.set(p.id, {
-                display_name: p.display_name ?? null,
-                avatar_url: p.avatar_url ?? null,
-              });
+              pMap.set(p.id, { display_name: p.display_name ?? null, avatar_url: p.avatar_url ?? null });
             });
           }
 
@@ -268,12 +261,8 @@ export default function PublicProfile() {
             const embeddedArr = toArray(story.profiles);
             const current = embeddedArr[0] ?? null;
             const fromMap = pMap.get(story.author_id) ?? null;
-
-            const display_name =
-              current?.display_name ?? fromMap?.display_name ?? 'Autor';
-            const avatar_url =
-              current?.avatar_url ?? fromMap?.avatar_url ?? null;
-
+            const display_name = current?.display_name ?? fromMap?.display_name ?? 'Autor';
+            const avatar_url = current?.avatar_url ?? fromMap?.avatar_url ?? null;
             return {
               ...story,
               liked_at: likedAtMap.get(story.id),
@@ -291,10 +280,7 @@ export default function PublicProfile() {
       setLikedStories(likedList);
 
       if (uidViewer) {
-        const allIds = [
-          ...storiesWithAuthor.map((s) => s.id),
-          ...likedList.map((s) => s.id),
-        ];
+        const allIds = [...storiesWithAuthor.map((s) => s.id), ...likedList.map((s) => s.id)];
         const unique = Array.from(new Set(allIds));
         if (unique.length) {
           const { data: viewerLikes } = await supabase
@@ -316,59 +302,33 @@ export default function PublicProfile() {
     }
   }, [profileId]);
 
-  useEffect(() => {
-    loadFromSupabase();
-  }, [loadFromSupabase]);
+  useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
 
   const goToChat = useCallback(async () => {
     if (!viewerId || !profileId) return;
-
-    if (fromChat) {
-      router.back();
-      return;
-    }
+    if (fromChat) { router.back(); return; }
 
     const [u1, u2] = [viewerId, profileId].sort();
-
     const { data: existing } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('user1_id', u1)
-      .eq('user2_id', u2)
-      .maybeSingle();
+      .from('conversations').select('id')
+      .eq('user1_id', u1).eq('user2_id', u2).maybeSingle();
 
     if (existing) {
       router.push({
         pathname: '/chat/[id]',
-        params: {
-          id: existing.id,
-          otherName: displayName,
-          otherAvatar: avatarUrl ?? '',
-          otherUserId: profileId,
-        },
+        params: { id: existing.id, otherName: displayName, otherAvatar: avatarUrl ?? '', otherUserId: profileId },
       });
       return;
     }
 
     const { data: created, error } = await supabase
-      .from('conversations')
-      .insert({ user1_id: u1, user2_id: u2 })
-      .select('id')
-      .single();
+      .from('conversations').insert({ user1_id: u1, user2_id: u2 }).select('id').single();
 
-    if (error || !created) {
-      Alert.alert('Error', 'No se pudo abrir el chat.');
-      return;
-    }
+    if (error || !created) { Alert.alert('Error', 'No se pudo abrir el chat.'); return; }
 
     router.push({
       pathname: '/chat/[id]',
-      params: {
-        id: created.id,
-        otherName: displayName,
-        otherAvatar: avatarUrl ?? '',
-        otherUserId: profileId,
-      },
+      params: { id: created.id, otherName: displayName, otherAvatar: avatarUrl ?? '', otherUserId: profileId },
     });
   }, [viewerId, profileId, router, displayName, avatarUrl, fromChat]);
 
@@ -385,29 +345,19 @@ export default function PublicProfile() {
       });
 
       const bump = (arr: DBStory[], id: string, d: number) =>
-        arr.map((s) =>
-          s.id === id ? { ...s, likes_count: Math.max(0, (s.likes_count || 0) + d) } : s
-        );
+        arr.map((s) => s.id === id ? { ...s, likes_count: Math.max(0, (s.likes_count || 0) + d) } : s);
 
       setStories((curr) => bump(curr, story.id, isLiked ? -1 : +1));
       setLikedStories((curr) => bump(curr, story.id, isLiked ? -1 : +1));
 
       if (isLiked) {
-        const { error } = await supabase
-          .from('story_likes')
-          .delete()
+        const { error } = await supabase.from('story_likes').delete()
           .match({ user_id: viewerId, story_id: story.id });
         if (error) setLikedIds((prev) => new Set(prev).add(story.id));
       } else {
-        const { error } = await supabase
-          .from('story_likes')
+        const { error } = await supabase.from('story_likes')
           .insert({ user_id: viewerId, story_id: story.id });
-        if (error)
-          setLikedIds((prev) => {
-            const n = new Set(prev);
-            n.delete(story.id);
-            return n;
-          });
+        if (error) setLikedIds((prev) => { const n = new Set(prev); n.delete(story.id); return n; });
       }
     },
     [viewerId, likedIds]
@@ -420,18 +370,13 @@ export default function PublicProfile() {
 
   const isEarlyUser = createdAt ? new Date(createdAt) < new Date('2026-01-01') : false;
 
-  // ── Skeleton mientras carga datos o fuentes ───────────────────────────────
   if (loading || !fontsLoaded) return <PublicProfileSkeleton insetTop={insets.top} />;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={s.screen} edges={['bottom']}>
         <View style={[s.header, { paddingTop: insets.top, height: 56 + insets.top }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={s.backButton}
-            hitSlop={10}
-          >
+          <TouchableOpacity onPress={() => router.back()} style={s.backButton} hitSlop={10}>
             <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
           </TouchableOpacity>
           <Text style={s.headerTitle}>U-PAZ</Text>
@@ -441,10 +386,7 @@ export default function PublicProfile() {
         <View style={{ flex: 1 }}>
           <View style={s.avatarRow}>
             <View style={s.avatarWrap}>
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onPress={() => avatarUrl && setShowAvatarZoom(true)}
-              >
+              <TouchableOpacity activeOpacity={0.9} onPress={() => avatarUrl && setShowAvatarZoom(true)}>
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={s.avatar} />
                 ) : (
@@ -455,22 +397,14 @@ export default function PublicProfile() {
 
             <View style={{ flex: 1 }}>
               <Text style={s.name}>{displayName}</Text>
-              <View
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}
-              >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
                 {isAdmin && (
-                  <TouchableOpacity
-                    onPress={() => setBadgeModal({ visible: true, type: 'admin' })}
-                    hitSlop={8}
-                  >
+                  <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'admin' })} hitSlop={8}>
                     <MaterialIcons name="verified" size={24} color="#FFD700" />
                   </TouchableOpacity>
                 )}
                 {isEarlyUser && (
-                  <TouchableOpacity
-                    onPress={() => setBadgeModal({ visible: true, type: 'early' })}
-                    hitSlop={8}
-                  >
+                  <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'early' })} hitSlop={8}>
                     <MaterialIcons name="verified" size={24} color="#06B6D4" />
                   </TouchableOpacity>
                 )}
@@ -480,7 +414,6 @@ export default function PublicProfile() {
 
           <View style={s.tabs}>
             <View style={s.tabsRow}>
-              {/* Tabs izq */}
               <View style={s.tabBtnContainer}>
                 <TouchableOpacity
                   onPress={() => setTab('mine')}
@@ -502,13 +435,10 @@ export default function PublicProfile() {
                 </TouchableOpacity>
               </View>
 
-              {/* Botón mensaje — solo si es perfil ajeno y hay sesión */}
               {viewerId && viewerId !== profileId && (
                 <TouchableOpacity
-                  style={s.msgIconBtn}
-                  onPress={goToChat}
-                  activeOpacity={0.8}
-                  hitSlop={8}
+                  style={s.msgIconBtn} onPress={goToChat}
+                  activeOpacity={0.8} hitSlop={8}
                 >
                   <Ionicons name="chatbox-outline" size={18} color="#F3F4F6" />
                 </TouchableOpacity>
@@ -519,16 +449,10 @@ export default function PublicProfile() {
           <FlatList
             data={listData}
             keyExtractor={(it) => it.id}
-            contentContainerStyle={{
-              paddingHorizontal: 16,
-              paddingBottom: 24,
-              paddingTop: 16,
-            }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 16 }}
             ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
             ListEmptyComponent={
-              <Text
-                style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}
-              >
+              <Text style={{ color: '#8A8A93', textAlign: 'center', marginTop: 24 }}>
                 {tab === 'mine'
                   ? 'Aún no tiene historias.'
                   : likesPublic
@@ -548,39 +472,29 @@ export default function PublicProfile() {
           />
         </View>
 
+        {/* Modal badges */}
         <Modal visible={badgeModal.visible} transparent animationType="fade">
           <View style={s.badgeOverlay}>
-            <TouchableOpacity
-              style={s.badgeBackdrop}
-              onPress={() => setBadgeModal({ visible: false, type: null })}
-            />
+            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setBadgeModal({ visible: false, type: null })} />
             <View style={s.badgeContent}>
-              <TouchableOpacity
-                style={s.badgeCloseBtn}
-                onPress={() => setBadgeModal({ visible: false, type: null })}
-              >
+              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setBadgeModal({ visible: false, type: null })}>
                 <Ionicons name="close-circle" size={28} color="#F3F4F6" />
               </TouchableOpacity>
-
               {badgeModal.type === 'admin' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#FFD700" />
                   <Text style={s.badgeTitle}>Administrador</Text>
                   <Text style={s.badgeDesc}>
-                    Esta insignia indica que eres administrador de la aplicación
-                    U-PAZ. Tienes permisos especiales para moderar y gestionar
-                    contenido.
+                    Esta insignia indica que eres administrador de la aplicación U-PAZ. Tienes permisos especiales para moderar y gestionar contenido.
                   </Text>
                 </View>
               )}
-
               {badgeModal.type === 'early' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#06B6D4" />
                   <Text style={s.badgeTitle}>Usuario Temprano</Text>
                   <Text style={s.badgeDesc}>
-                    Fuiste uno de los primeros en unirse a U-PAZ antes de
-                    finalizar 2025.
+                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025.
                   </Text>
                 </View>
               )}
@@ -600,13 +514,9 @@ export default function PublicProfile() {
 
 // ─── ImageZoomModal ───────────────────────────────────────────────────────────
 function ImageZoomModal({
-  visible,
-  imageUri,
-  onClose,
+  visible, imageUri, onClose,
 }: {
-  visible: boolean;
-  imageUri: string;
-  onClose: () => void;
+  visible: boolean; imageUri: string; onClose: () => void;
 }) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
@@ -618,28 +528,21 @@ function ImageZoomModal({
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
       if (scale.value > 1) {
-        scale.value = withSpring(1);
-        baseScale.value = 1;
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
+        scale.value = withSpring(1); baseScale.value = 1;
+        translateX.value = withSpring(0); translateY.value = withSpring(0);
       } else {
-        scale.value = withSpring(2);
-        baseScale.value = 2;
+        scale.value = withSpring(2); baseScale.value = 2;
       }
     }
   };
 
-  const onPinch = (event: any) => {
-    scale.value = baseScale.value * event.nativeEvent.scale;
-  };
+  const onPinch = (event: any) => { scale.value = baseScale.value * event.nativeEvent.scale; };
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
     if (scale.value < 1) {
-      scale.value = withSpring(1);
-      baseScale.value = 1;
-      translateX.value = withSpring(0);
-      translateY.value = withSpring(0);
+      scale.value = withSpring(1); baseScale.value = 1;
+      translateX.value = withSpring(0); translateY.value = withSpring(0);
     }
   };
 
@@ -654,28 +557,13 @@ function ImageZoomModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade">
-      <TouchableOpacity
-        style={s.zoomOverlay}
-        activeOpacity={1}
-        onPress={onClose}
-      >
-        <TapGestureHandler
-          ref={doubleTapRef}
-          onHandlerStateChange={onDoubleTap}
-          numberOfTaps={2}
-        >
+      <TouchableOpacity style={s.zoomOverlay} activeOpacity={1} onPress={onClose}>
+        <TapGestureHandler ref={doubleTapRef} onHandlerStateChange={onDoubleTap} numberOfTaps={2}>
           <Animated.View style={{ justifyContent: 'center', alignItems: 'center' }}>
             <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPress={(e) => e.stopPropagation()}
-                >
-                  <Image
-                    source={{ uri: imageUri }}
-                    style={s.zoomImage}
-                    resizeMode="cover"
-                  />
+                <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+                  <Image source={{ uri: imageUri }} style={s.zoomImage} resizeMode="cover" />
                 </TouchableOpacity>
               </Animated.View>
             </PinchGestureHandler>
@@ -688,10 +576,7 @@ function ImageZoomModal({
 
 // ─── PublicStoryCard ──────────────────────────────────────────────────────────
 function PublicStoryCard({
-  item,
-  isLiked,
-  onToggleLike,
-  viewerId,
+  item, isLiked, onToggleLike, viewerId,
 }: {
   item: DBStory;
   isLiked: boolean;
@@ -700,7 +585,6 @@ function PublicStoryCard({
 }) {
   const hasCover = !!item.cover_url;
   const profile0 = toArray(item.profiles)[0] ?? null;
-
   const authorForCard = profile0?.display_name?.trim() || 'Autor';
   const authorAvatar = profile0?.avatar_url ?? null;
 
@@ -708,6 +592,7 @@ function PublicStoryCard({
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
+  const [showShare, setShowShare] = useState(false); // ← NUEVO
 
   const handleShowLikes = async () => {
     setShowLikesModal(true);
@@ -717,14 +602,10 @@ function PublicStoryCard({
         .from('story_likes')
         .select(`
           user_id,
-          profiles!story_likes_user_id_fkey (
-            id, display_name, avatar_url, is_admin, created_at
-          )
+          profiles!story_likes_user_id_fkey ( id, display_name, avatar_url, is_admin, created_at )
         `)
         .eq('story_id', item.id);
-
       if (error) throw error;
-
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
         id: like.profiles.id,
         display_name: like.profiles.display_name,
@@ -743,11 +624,7 @@ function PublicStoryCard({
   const handleLikePress = async () => {
     if (isLiking) return;
     setIsLiking(true);
-    try {
-      await onToggleLike();
-    } finally {
-      setIsLiking(false);
-    }
+    try { await onToggleLike(); } finally { setIsLiking(false); }
   };
 
   const likesCount = item.likes_count ?? 0;
@@ -759,11 +636,8 @@ function PublicStoryCard({
         href={{
           pathname: '/story/[id]',
           params: {
-            id: item.id,
-            title: item.title,
-            author: authorForCard,
-            body: item.body,
-            cover: item.cover_url ?? '',
+            id: item.id, title: item.title, author: authorForCard,
+            body: item.body, cover: item.cover_url ?? '',
             likes: String(item.likes_count ?? 0),
             comments: String(item.comments_count ?? 0),
             source: 'public-profile',
@@ -776,16 +650,7 @@ function PublicStoryCard({
             {authorAvatar ? (
               <Image source={{ uri: authorAvatar }} style={s.avatarMini} />
             ) : (
-              <View
-                style={[
-                  s.avatarMini,
-                  {
-                    backgroundColor: '#0F1016',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  },
-                ]}
-              >
+              <View style={[s.avatarMini, { backgroundColor: '#0F1016', alignItems: 'center', justifyContent: 'center' }]}>
                 <Ionicons name="person-outline" size={12} color="#9CA3AF" />
               </View>
             )}
@@ -793,89 +658,72 @@ function PublicStoryCard({
           </View>
 
           <Text style={s.cardTitle}>{item.title}</Text>
-
-          {hasCover && (
-            <Image source={{ uri: item.cover_url! }} style={s.cardImg} />
-          )}
-
-          {!hasCover && (
-            <Text style={s.excerpt} numberOfLines={3}>
-              {item.body}
-            </Text>
-          )}
+          {hasCover && <Image source={{ uri: item.cover_url! }} style={s.cardImg} />}
+          {!hasCover && <Text style={s.excerpt} numberOfLines={3}>{item.body}</Text>}
 
           <View style={s.footerRow}>
+            {/* Like */}
             <TouchableOpacity
-              onPress={handleLikePress}
-              style={s.meta}
-              hitSlop={10}
+              onPress={handleLikePress} style={s.meta} hitSlop={10}
               disabled={!viewerId || isLiking}
             >
               <Ionicons
-                name={isLiked ? 'heart' : 'heart-outline'}
-                size={16}
+                name={isLiked ? 'heart' : 'heart-outline'} size={16}
                 color={isLiked ? '#EF4444' : '#F3F4F6'}
                 style={{ opacity: isLiking ? 0.5 : 1 }}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={handleShowLikes}
-              activeOpacity={0.8}
+              onPress={handleShowLikes} activeOpacity={0.8}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               style={{ marginLeft: 4 }}
             >
-              <Text
-                style={[
-                  s.metaTxt,
-                  isLiked && { color: '#EF4444', fontWeight: '700' },
-                ]}
-              >
+              <Text style={[s.metaTxt, isLiked && { color: '#EF4444', fontWeight: '700' }]}>
                 {likesCount} {likesCount === 1 ? 'Like' : 'Likes'}
               </Text>
             </TouchableOpacity>
 
+            {/* Comentarios */}
             <View style={[s.meta, { marginLeft: 12 }]}>
               <Ionicons name="chatbox-outline" size={16} color="#F3F4F6" />
             </View>
-
             <View style={{ marginLeft: 4 }}>
               <Text style={s.metaTxt}>
-                {commentsCount}{' '}
-                {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
+                {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
               </Text>
             </View>
+
+            {/* ← NUEVO: Compartir */}
+            <TouchableOpacity
+              style={{ marginLeft: 'auto' }}
+              onPress={(e) => { e.stopPropagation(); setShowShare(true); }}
+              hitSlop={10}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="share-social-outline" size={16} color="#9CA3AF" />
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Link>
 
+      {/* Modal likes */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
-          <TouchableOpacity
-            style={s.likeBackdrop}
-            onPress={() => setShowLikesModal(false)}
-          />
+          <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
           <View style={s.likesSheet}>
             <View style={s.likesHeader}>
               <Text style={s.likesTitle}>Les dio like</Text>
-              <TouchableOpacity
-                onPress={() => setShowLikesModal(false)}
-                hitSlop={10}
-              >
+              <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
                 <Ionicons name="close" size={24} color="#F3F4F6" />
               </TouchableOpacity>
             </View>
-
             {loadingLikes ? (
-              <View
-                style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
-              >
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#F3F4F6" />
               </View>
             ) : likeUsers.length === 0 ? (
-              <View
-                style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
-              >
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <Text style={{ color: '#9CA3AF' }}>Sin likes aún</Text>
               </View>
             ) : (
@@ -885,75 +733,23 @@ function PublicStoryCard({
                 contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
                 ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                 renderItem={({ item: user }) => {
-                  const isUserEarly =
-                    new Date(user.created_at) < new Date('2026-01-01');
+                  const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
                   return (
-                    <Link
-                      href={{
-                        pathname: '/profile/[id]',
-                        params: { id: user.id },
-                      }}
-                      asChild
-                    >
-                      <TouchableOpacity
-                        style={s.likeUserCard}
-                        onPress={() => setShowLikesModal(false)}
-                      >
+                    <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
+                      <TouchableOpacity style={s.likeUserCard} onPress={() => setShowLikesModal(false)}>
                         {user.avatar_url ? (
-                          <Image
-                            source={{ uri: user.avatar_url }}
-                            style={s.likeUserAvatar}
-                          />
+                          <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
                         ) : (
-                          <View
-                            style={[
-                              s.likeUserAvatar,
-                              {
-                                backgroundColor: '#0F1016',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name="person-outline"
-                              size={16}
-                              color="#9CA3AF"
-                            />
+                          <View style={[s.likeUserAvatar, { backgroundColor: '#0F1016', alignItems: 'center', justifyContent: 'center' }]}>
+                            <Ionicons name="person-outline" size={16} color="#9CA3AF" />
                           </View>
                         )}
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            flex: 1,
-                          }}
-                        >
-                          <Text style={s.likeUserName}>
-                            {user.display_name || 'Usuario'}
-                          </Text>
-                          {user.is_admin && (
-                            <MaterialIcons
-                              name="verified"
-                              size={14}
-                              color="#FFD700"
-                            />
-                          )}
-                          {isUserEarly && (
-                            <MaterialIcons
-                              name="verified"
-                              size={14}
-                              color="#06B6D4"
-                            />
-                          )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                          <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
+                          {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
+                          {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
                         </View>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={20}
-                          color="#9CA3AF"
-                          style={{ marginLeft: 'auto' }}
-                        />
+                        <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
                       </TouchableOpacity>
                     </Link>
                   );
@@ -963,6 +759,22 @@ function PublicStoryCard({
           </View>
         </View>
       </Modal>
+
+      {/* ← NUEVO: ShareStorySheet */}
+      {viewerId && (
+        <ShareStorySheet
+          visible={showShare}
+          onClose={() => setShowShare(false)}
+          currentUserId={viewerId}
+          story={{
+            id: item.id,
+            title: item.title,
+            cover_url: item.cover_url,
+            author: authorForCard,
+            author_avatar: authorAvatar,
+          }}
+        />
+      )}
     </>
   );
 }
@@ -971,285 +783,112 @@ function PublicStoryCard({
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
   header: {
-    backgroundColor: '#000000ff',
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#181818ff',
-    zIndex: 1000,
+    backgroundColor: '#000000ff', height: 56,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, borderBottomWidth: 1,
+    borderBottomColor: '#181818ff', zIndex: 1000,
   },
   backButton: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
   headerTitle: {
-    fontFamily: 'Risque_400Regular',
-    fontSize: 22,
-    color: '#F3F4F6',
-    letterSpacing: 0.5,
-    flex: 1,
-    textAlign: 'center',
+    fontFamily: 'Risque_400Regular', fontSize: 22, color: '#F3F4F6',
+    letterSpacing: 0.5, flex: 1, textAlign: 'center',
   },
   avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    marginTop: 24,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingHorizontal: 16, marginTop: 24, gap: 12,
   },
   avatarWrap: { position: 'relative' },
   avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F' },
   name: { color: '#F3F4F6', fontSize: 28, fontWeight: '700' },
-  badgeOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  badgeOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
   badgeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
   badgeContent: {
-    backgroundColor: '#121219',
-    borderRadius: 20,
-    padding: 24,
-    width: '85%',
-    maxWidth: 320,
-    borderWidth: 1,
-    borderColor: '#1F1F27',
-    alignItems: 'center',
-    zIndex: 10,
+    backgroundColor: '#121219', borderRadius: 20, padding: 24,
+    width: '85%', maxWidth: 320, borderWidth: 1, borderColor: '#1F1F27',
+    alignItems: 'center', zIndex: 10,
   },
   badgeCloseBtn: { position: 'absolute', top: 12, right: 12, zIndex: 20 },
   badgeInfo: { alignItems: 'center', marginTop: 8 },
-  badgeTitle: {
-    color: '#F3F4F6',
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 8,
-  },
+  badgeTitle: { color: '#F3F4F6', fontSize: 20, fontWeight: '700', marginTop: 16, marginBottom: 8 },
   badgeDesc: { color: '#D1D5DB', fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  tabs: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
-  tabsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'center',
-  },
+  tabs: { marginTop: 24, paddingHorizontal: 16, marginBottom: 16 },
+  tabsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center' },
   msgIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#202020ff',
-    backgroundColor: '#000000ff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 8,
+    borderWidth: 2, borderColor: '#202020ff',
+    backgroundColor: '#000000ff', alignItems: 'center', justifyContent: 'center',
   },
   tabBtnContainer: {
-    flexDirection: 'row',
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#000000ff',
-    borderWidth: 2,
-    borderColor: '#202020ff',
-    flex: 1,
-    maxWidth: 280,
-    overflow: 'hidden',
+    flexDirection: 'row', height: 40, borderRadius: 8,
+    backgroundColor: '#000000ff', borderWidth: 2, borderColor: '#202020ff',
+    flex: 1, maxWidth: 280, overflow: 'hidden',
   },
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   tabBtnActive: { backgroundColor: '#1f1f1fff' },
   tabTxt: { color: '#F3F4F6', fontWeight: '600', fontSize: 16 },
   tabTxtActive: { color: '#FFFFFF', fontWeight: '700' },
   card: {
-    backgroundColor: '#010102ff',
-    borderRadius: 14,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#181818ff',
-    padding: 12,
+    backgroundColor: '#010102ff', borderRadius: 14, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#181818ff', padding: 12,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   avatarMini: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#0F1016',
-    borderWidth: 1,
-    borderColor: '#1F1F27',
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: '#0F1016', borderWidth: 1, borderColor: '#1F1F27',
   },
   authorTxt: { color: '#E5E7EB', fontWeight: '600', flex: 1 },
   cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
   cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
   excerpt: { color: '#D1D5DB' },
   footerRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#010102ff',
-    paddingTop: 8,
+    marginTop: 8, flexDirection: 'row', alignItems: 'center',
+    borderTopWidth: 1, borderTopColor: '#010102ff', paddingTop: 8,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaTxt: { color: '#F3F4F6' },
-  zoomOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  zoomImage: {
-    width: SCREEN_WIDTH * 0.9,
-    height: SCREEN_WIDTH * 0.9,
-    borderRadius: (SCREEN_WIDTH * 0.9) / 2,
-  },
+  zoomOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  zoomImage: { width: SCREEN_WIDTH * 0.9, height: SCREEN_WIDTH * 0.9, borderRadius: (SCREEN_WIDTH * 0.9) / 2 },
   likesOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   likeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
   likesSheet: {
-    backgroundColor: '#010102ff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderColor: '#181818ff',
-    maxHeight: '75%',
-    zIndex: 10,
+    backgroundColor: '#010102ff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    borderTopWidth: 1, borderColor: '#181818ff', maxHeight: '75%', zIndex: 10,
   },
   likesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#181818ff',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: '#181818ff',
   },
   likesTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
   likeUserCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#010102ff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#181818ff',
-    padding: 12,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#010102ff', borderRadius: 12,
+    borderWidth: 1, borderColor: '#181818ff', padding: 12, gap: 12,
   },
-  likeUserAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#2C2C33',
-  },
+  likeUserAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#2C2C33' },
   likeUserName: { color: '#F3F4F6', fontWeight: '600' },
 });
 
 // ─── Skeleton styles ──────────────────────────────────────────────────────────
 const sk = StyleSheet.create({
   fakeHeader: {
-    backgroundColor: '#000',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#181818ff',
+    backgroundColor: '#000', flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#181818ff',
   },
-  fakeHeaderBack: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    backgroundColor: '#1F1F27',
-  },
-  fakeHeaderTitle: {
-    flex: 1,
-    height: 18,
-    borderRadius: 6,
-    backgroundColor: '#1F1F27',
-    marginHorizontal: 16,
-  },
-  headerWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginTop: 24,
-    gap: 12,
-  },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: '#1a1a1aff',
-  },
-  nameLine: {
-    height: 22,
-    width: '60%',
-    borderRadius: 8,
-    backgroundColor: '#1a1a1aff',
-  },
-  subLine: {
-    height: 14,
-    width: '30%',
-    borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
-  tabsWrap: {
-    flexDirection: 'row',
-    marginTop: 24,
-    paddingHorizontal: 16,
-    gap: 8,
-    marginBottom: 16,
-    height: 40,
-  },
-  tabBtn: {
-    flex: 1,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#1a1a1aff',
-  },
-  card: {
-    backgroundColor: '#0d0d0dff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#181818ff',
-    padding: 12,
-    gap: 10,
-  },
+  fakeHeaderBack: { width: 24, height: 24, borderRadius: 6, backgroundColor: '#1F1F27' },
+  fakeHeaderTitle: { flex: 1, height: 18, borderRadius: 6, backgroundColor: '#1F1F27', marginHorizontal: 16 },
+  headerWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 24, gap: 12 },
+  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#1a1a1aff' },
+  nameLine: { height: 22, width: '60%', borderRadius: 8, backgroundColor: '#1a1a1aff' },
+  subLine: { height: 14, width: '30%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
+  tabsWrap: { flexDirection: 'row', marginTop: 24, paddingHorizontal: 16, gap: 8, marginBottom: 16, height: 40 },
+  tabBtn: { flex: 1, height: 40, borderRadius: 8, backgroundColor: '#1a1a1aff' },
+  card: { backgroundColor: '#0d0d0dff', borderRadius: 14, borderWidth: 1, borderColor: '#181818ff', padding: 12, gap: 10 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardAuthorLine: {
-    height: 12,
-    width: '35%',
-    borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardTitleLine: {
-    height: 18,
-    width: '70%',
-    borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardImage: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    borderRadius: 10,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardFooter: {
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#181818ff',
-  },
-  cardFooterLine: {
-    height: 12,
-    width: '40%',
-    borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
+  cardAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#1a1a1aff' },
+  cardAuthorLine: { height: 12, width: '35%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
+  cardTitleLine: { height: 18, width: '70%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
+  cardImage: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, backgroundColor: '#1a1a1aff' },
+  cardFooter: { paddingTop: 8, borderTopWidth: 1, borderTopColor: '#181818ff' },
+  cardFooterLine: { height: 12, width: '40%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
 });

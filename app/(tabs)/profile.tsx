@@ -29,8 +29,8 @@ import Animated, {
   withSequence,
   Easing,
 } from 'react-native-reanimated';
-
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import ShareStorySheet from '../../components/ShareStorySheet'; // ← NUEVO
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -96,7 +96,6 @@ async function uriToArrayBuffer(uri: string) {
 
 const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function usePulse() {
   const opacity = useSharedValue(0.3);
@@ -170,13 +169,10 @@ function ProfileSkeleton() {
 export default function Profile() {
   const navigation = useNavigation();
   const router = useRouter();
-
-
-
   const [fontsLoaded] = useFonts({ Risque_400Regular });
   const { width } = useWindowDimensions();
 
-  const [loading, setLoading] = useState(true); // ← NUEVO
+  const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [likesPublic, setLikesPublic] = useState<boolean>(true);
@@ -309,14 +305,8 @@ export default function Profile() {
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
         .select(`
-          id,
-          title,
-          body,
-          cover_url,
-          likes_count,
-          comments_count,
-          created_at,
-          author_id,
+          id, title, body, cover_url, likes_count, comments_count,
+          created_at, author_id,
           profiles!stories_author_id_fkey ( display_name, avatar_url )
         `)
         .eq('author_id', uid)
@@ -354,14 +344,8 @@ export default function Profile() {
         const { data: liked, error: likedErr } = await supabase
           .from('stories')
           .select(`
-            id,
-            title,
-            body,
-            cover_url,
-            likes_count,
-            comments_count,
-            created_at,
-            author_id,
+            id, title, body, cover_url, likes_count, comments_count,
+            created_at, author_id,
             profiles!stories_author_id_fkey ( display_name, avatar_url )
           `)
           .in('id', ids);
@@ -370,10 +354,7 @@ export default function Profile() {
         let likedWithAuthor: DBStory[] = (liked ?? []).map((story: any) => {
           const profileArr = toArray(story.profiles);
           if (profileArr.length === 0) {
-            return {
-              ...story,
-              profiles: [{ display_name: 'Autor', avatar_url: null }],
-            };
+            return { ...story, profiles: [{ display_name: 'Autor', avatar_url: null }] };
           }
           return { ...story, profiles: profileArr };
         });
@@ -393,11 +374,10 @@ export default function Profile() {
           likedWithAuthor = likedWithAuthor.map(st => {
             const current = toArray(st.profiles)[0] ?? null;
             const fromMap = pMap.get(st.author_id) ?? null;
-
             if (!current || current.avatar_url == null || current.display_name == null) {
               const display_name = current?.display_name ?? fromMap?.display_name ?? 'Autor';
               const avatar_url =
-                (st.author_id === uid ? (prof?.avatar_url ?? null) : null) ??
+                (st.author_id === uid ? prof?.avatar_url : undefined) ??
                 current?.avatar_url ??
                 fromMap?.avatar_url ??
                 null;
@@ -418,19 +398,17 @@ export default function Profile() {
     } catch (e: any) {
       showNotification('Error', e?.message ?? 'No se pudo cargar tu perfil.', 'error');
     } finally {
-      setLoading(false); // ← NUEVO
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
 
-    // ✅ Solo recargar datos, sin animación
-    useFocusEffect(
-      useCallback(() => {
-        loadFromSupabase();
-      }, [loadFromSupabase])
-    );
-
+  useFocusEffect(
+    useCallback(() => {
+      loadFromSupabase();
+    }, [loadFromSupabase])
+  );
 
   async function selectDefaultAvatar(avatarId: string) {
     if (uploadingAvatar) return;
@@ -570,11 +548,10 @@ export default function Profile() {
   const listData = useMemo(() => (tab === 'mine' ? myStories : likedStories), [tab, myStories, likedStories]);
   const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
 
-  // ── Mostrar skeleton mientras carga ──────────────────────────────────────
   if (loading) return <ProfileSkeleton />;
 
   return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={s.screen}>
         <View style={s.avatarRow}>
           <View style={s.avatarWrap}>
@@ -652,20 +629,14 @@ export default function Profile() {
           showsVerticalScrollIndicator={false}
         />
 
+        {/* Modales del perfil */}
         <Modal visible={badgeModal.visible} transparent animationType="fade">
           <View style={s.badgeOverlay}>
-            <TouchableOpacity
-              style={s.badgeBackdrop}
-              onPress={() => setBadgeModal({ visible: false, type: null })}
-            />
+            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setBadgeModal({ visible: false, type: null })} />
             <View style={s.badgeContent}>
-              <TouchableOpacity
-                style={s.badgeCloseBtn}
-                onPress={() => setBadgeModal({ visible: false, type: null })}
-              >
+              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setBadgeModal({ visible: false, type: null })}>
                 <Ionicons name="close-circle" size={28} color="#F3F4F6" />
               </TouchableOpacity>
-
               {badgeModal.type === 'admin' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#FFD700" />
@@ -675,7 +646,6 @@ export default function Profile() {
                   </Text>
                 </View>
               )}
-
               {badgeModal.type === 'early' && (
                 <View style={s.badgeInfo}>
                   <MaterialIcons name="verified" size={56} color="#06B6D4" />
@@ -715,11 +685,7 @@ export default function Profile() {
             <View style={s.avatarPickerSheet}>
               <View style={s.avatarPickerHeader}>
                 <Text style={s.avatarPickerTitle}>Elige tu avatar</Text>
-                <TouchableOpacity
-                  onPress={() => setShowAvatarPicker(false)}
-                  hitSlop={10}
-                  disabled={uploadingAvatar}
-                >
+                <TouchableOpacity onPress={() => setShowAvatarPicker(false)} hitSlop={10} disabled={uploadingAvatar}>
                   <Ionicons name="close" size={24} color={uploadingAvatar ? '#666' : '#F3F4F6'} />
                 </TouchableOpacity>
               </View>
@@ -779,14 +745,11 @@ export default function Profile() {
   );
 }
 
+// ── ImageZoomModal ─────────────────────────────────────────────────────────────
 function ImageZoomModal({
-  visible,
-  imageUri,
-  onClose,
+  visible, imageUri, onClose,
 }: {
-  visible: boolean;
-  imageUri: string;
-  onClose: () => void;
+  visible: boolean; imageUri: string; onClose: () => void;
 }) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
@@ -798,28 +761,21 @@ function ImageZoomModal({
   const onDoubleTap = (event: any) => {
     if (event.nativeEvent.state === State.ACTIVE) {
       if (scale.value > 1) {
-        scale.value = withSpring(1);
-        baseScale.value = 1;
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
+        scale.value = withSpring(1); baseScale.value = 1;
+        translateX.value = withSpring(0); translateY.value = withSpring(0);
       } else {
-        scale.value = withSpring(2);
-        baseScale.value = 2;
+        scale.value = withSpring(2); baseScale.value = 2;
       }
     }
   };
 
-  const onPinch = (event: any) => {
-    scale.value = baseScale.value * event.nativeEvent.scale;
-  };
+  const onPinch = (event: any) => { scale.value = baseScale.value * event.nativeEvent.scale; };
 
   const onPinchEnd = () => {
     baseScale.value = scale.value;
     if (scale.value < 1) {
-      scale.value = withSpring(1);
-      baseScale.value = 1;
-      translateX.value = withSpring(0);
-      translateY.value = withSpring(0);
+      scale.value = withSpring(1); baseScale.value = 1;
+      translateX.value = withSpring(0); translateY.value = withSpring(0);
     }
   };
 
@@ -851,13 +807,9 @@ function ImageZoomModal({
   );
 }
 
+// ── ProfileStoryCard ───────────────────────────────────────────────────────────
 function ProfileStoryCard({
-  item,
-  isMine,
-  avatarUrl,
-  currentUserId,
-  isLiked,
-  onToggleLike,
+  item, isMine, avatarUrl, currentUserId, isLiked, onToggleLike,
 }: {
   item: DBStory;
   isMine: boolean;
@@ -867,7 +819,6 @@ function ProfileStoryCard({
   onToggleLike: () => void;
 }) {
   const hasCover = !!item.cover_url;
-
   const profileArr = toArray(item.profiles);
   const authorForCard = profileArr[0]?.display_name?.trim() || 'Autor';
   const shouldUseSelfAvatar = isMine || (currentUserId && item.author_id === currentUserId);
@@ -877,6 +828,7 @@ function ProfileStoryCard({
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
+  const [showShare, setShowShare] = useState(false); // ← NUEVO
 
   const handleShowLikes = async () => {
     setShowLikesModal(true);
@@ -886,18 +838,10 @@ function ProfileStoryCard({
         .from('story_likes')
         .select(`
           user_id,
-          profiles!story_likes_user_id_fkey (
-            id,
-            display_name,
-            avatar_url,
-            is_admin,
-            created_at
-          )
+          profiles!story_likes_user_id_fkey ( id, display_name, avatar_url, is_admin, created_at )
         `)
         .eq('story_id', item.id);
-
       if (error) throw error;
-
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
         id: like.profiles.id,
         display_name: like.profiles.display_name,
@@ -916,11 +860,7 @@ function ProfileStoryCard({
   const handleLikePress = async () => {
     if (isLiking) return;
     setIsLiking(true);
-    try {
-      await onToggleLike();
-    } finally {
-      setIsLiking(false);
-    }
+    try { await onToggleLike(); } finally { setIsLiking(false); }
   };
 
   const likesCount = item.likes_count ?? 0;
@@ -932,11 +872,8 @@ function ProfileStoryCard({
         href={{
           pathname: '/story/[id]',
           params: {
-            id: item.id,
-            title: item.title,
-            author: authorForCard,
-            body: item.body,
-            cover: item.cover_url ?? '',
+            id: item.id, title: item.title, author: authorForCard,
+            body: item.body, cover: item.cover_url ?? '',
             likes: String(item.likes_count ?? 0),
             comments: String(item.comments_count ?? 0),
             source: 'profile',
@@ -955,26 +892,20 @@ function ProfileStoryCard({
           </View>
 
           <Text style={s.cardTitle}>{item.title}</Text>
-
           {hasCover ? <Image source={{ uri: item.cover_url! }} style={s.cardImg} /> : null}
-
-          {!hasCover ? (
-            <Text style={s.excerpt} numberOfLines={3}>{item.body}</Text>
-          ) : null}
+          {!hasCover ? <Text style={s.excerpt} numberOfLines={3}>{item.body}</Text> : null}
 
           <View style={s.footerRow}>
+            {/* Like */}
             <TouchableOpacity onPress={handleLikePress} style={s.meta} hitSlop={10} disabled={isLiking}>
               <Ionicons
-                name={isLiked ? 'heart' : 'heart-outline'}
-                size={16}
+                name={isLiked ? 'heart' : 'heart-outline'} size={16}
                 color={isLiked ? '#EF4444' : '#F3F4F6'}
                 style={{ opacity: isLiking ? 0.5 : 1 }}
               />
             </TouchableOpacity>
-
             <TouchableOpacity
-              onPress={handleShowLikes}
-              activeOpacity={0.8}
+              onPress={handleShowLikes} activeOpacity={0.8}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               style={{ marginLeft: 4 }}
             >
@@ -983,19 +914,30 @@ function ProfileStoryCard({
               </Text>
             </TouchableOpacity>
 
+            {/* Comentarios */}
             <View style={[s.meta, { marginLeft: 12 }]}>
               <Ionicons name="chatbox-outline" size={16} color="white" />
             </View>
-
             <View style={{ marginLeft: 4 }}>
               <Text style={s.metaTxt}>
                 {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
               </Text>
             </View>
+
+            {/* ← NUEVO: Compartir */}
+            <TouchableOpacity
+              style={{ marginLeft: 'auto' }}
+              onPress={(e) => { e.stopPropagation(); setShowShare(true); }}
+              hitSlop={10}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="share-social-outline" size={16} color="#9CA3AF" />
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Link>
 
+      {/* Modal likes */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
           <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
@@ -1006,7 +948,6 @@ function ProfileStoryCard({
                 <Ionicons name="close" size={24} color="#F3F4F6" />
               </TouchableOpacity>
             </View>
-
             {loadingLikes ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#F3F4F6" />
@@ -1048,18 +989,32 @@ function ProfileStoryCard({
           </View>
         </View>
       </Modal>
+
+      {/* ← NUEVO: ShareStorySheet */}
+      {currentUserId && (
+        <ShareStorySheet
+          visible={showShare}
+          onClose={() => setShowShare(false)}
+          currentUserId={currentUserId}
+          story={{
+            id: item.id,
+            title: item.title,
+            cover_url: item.cover_url,
+            author: authorForCard,
+            author_avatar: authorAvatar,
+          }}
+        />
+      )}
     </>
   );
 }
 
+// ── Estilos ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000000ff' },
   avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    marginTop: 24,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingHorizontal: 16, marginTop: 24, gap: 12,
   },
   avatarWrap: { position: 'relative' },
   avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#0B0B0F' },
@@ -1151,15 +1106,8 @@ const s = StyleSheet.create({
   },
   loadingText: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
   loadingSubtext: { color: '#9CA3AF', fontSize: 14 },
-  zoomOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  zoomImage: {
-    width: SCREEN_WIDTH * 0.9,
-    height: SCREEN_WIDTH * 0.9,
-    borderRadius: (SCREEN_WIDTH * 0.9) / 2,
-  },
+  zoomOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
+  zoomImage: { width: SCREEN_WIDTH * 0.9, height: SCREEN_WIDTH * 0.9, borderRadius: (SCREEN_WIDTH * 0.9) / 2 },
   likesOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   likeBackdrop: { position: 'absolute', width: '100%', height: '100%' },
   likesSheet: {
@@ -1182,54 +1130,21 @@ const s = StyleSheet.create({
 
 // ── Skeleton styles ───────────────────────────────────────────────────────────
 const sk = StyleSheet.create({
-  headerWrap: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, marginTop: 24, gap: 12,
-  },
-  avatar: {
-    width: 96, height: 96, borderRadius: 48,
-    backgroundColor: '#1a1a1aff',
-  },
-  nameLine: {
-    height: 22, width: '60%', borderRadius: 8,
-    backgroundColor: '#1a1a1aff',
-  },
-  subLine: {
-    height: 14, width: '30%', borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
-  tabsWrap: {
-    flexDirection: 'row', marginTop: 24,
-    paddingHorizontal: 16, gap: 8, marginBottom: 16,
-  },
-  tabBtn: {
-    flex: 1, height: 40, borderRadius: 8,
-    backgroundColor: '#1a1a1aff',
-  },
+  headerWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 24, gap: 12 },
+  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#1a1a1aff' },
+  nameLine: { height: 22, width: '60%', borderRadius: 8, backgroundColor: '#1a1a1aff' },
+  subLine: { height: 14, width: '30%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
+  tabsWrap: { flexDirection: 'row', marginTop: 24, paddingHorizontal: 16, gap: 8, marginBottom: 16 },
+  tabBtn: { flex: 1, height: 40, borderRadius: 8, backgroundColor: '#1a1a1aff' },
   card: {
     backgroundColor: '#0d0d0dff', borderRadius: 14,
     borderWidth: 1, borderColor: '#181818ff', padding: 12, gap: 10,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardAvatar: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardAuthorLine: {
-    height: 12, width: '35%', borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardTitleLine: {
-    height: 18, width: '70%', borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
-  cardImage: {
-    width: '100%', aspectRatio: 16 / 9,
-    borderRadius: 10, backgroundColor: '#1a1a1aff',
-  },
+  cardAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#1a1a1aff' },
+  cardAuthorLine: { height: 12, width: '35%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
+  cardTitleLine: { height: 18, width: '70%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
+  cardImage: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, backgroundColor: '#1a1a1aff' },
   cardFooter: { paddingTop: 8, borderTopWidth: 1, borderTopColor: '#181818ff' },
-  cardFooterLine: {
-    height: 12, width: '40%', borderRadius: 6,
-    backgroundColor: '#1a1a1aff',
-  },
+  cardFooterLine: { height: 12, width: '40%', borderRadius: 6, backgroundColor: '#1a1a1aff' },
 });

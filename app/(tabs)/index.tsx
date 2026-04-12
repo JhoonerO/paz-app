@@ -17,6 +17,7 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
+import ShareStorySheet from '../../components/ShareStorySheet'; // ← NUEVO
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -65,7 +66,7 @@ const C = {
 
 const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
 
-// ─── Skeleton ────────────────────────────────────────────────────────────────
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 function SkeletonBox({
   width, height, borderRadius = 8, style,
 }: {
@@ -136,7 +137,6 @@ export default function Feed() {
 
   type TabsNav = BottomTabNavigationProp<any>;
   const navigation = useNavigation<TabsNav>();
-
 
   const contentOpacity = useSharedValue(0);
   const contentStyle = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
@@ -240,11 +240,8 @@ export default function Feed() {
     if (!isLoadedRef.current) loadFeed();
   }, []);
 
-  // ✅ useFocusEffect solo para scroll al top — SIN animación de entrada
   useFocusEffect(
-    useCallback(() => {
-      // nada aquí — solo lo dejamos por si quieres agregar algo en el futuro
-    }, [])
+    useCallback(() => {}, [])
   );
 
   const onRefresh = useCallback(async () => {
@@ -264,7 +261,6 @@ export default function Feed() {
     return unsubscribe;
   }, [navigation]);
 
-  // ✅ View normal en vez de Animated.View con enterStyle — sin doble animación
   return (
     <View style={s.screen}>
       {loading ? (
@@ -288,6 +284,7 @@ export default function Feed() {
               <StoryCard
                 item={item}
                 liked={likedSet.has(item.id)}
+                userId={userId} // ← NUEVO: pasamos userId
                 onToggleLike={async (id) => {
                   const { data: userData } = await supabase.auth.getUser();
                   const uid = userData.user?.id;
@@ -328,9 +325,12 @@ export default function Feed() {
 
 // ─── StoryCard ────────────────────────────────────────────────────────────────
 function StoryCard({
-  item, liked, onToggleLike,
+  item, liked, userId, onToggleLike,
 }: {
-  item: DBStory; liked: boolean; onToggleLike: (id: string) => void;
+  item: DBStory;
+  liked: boolean;
+  userId: string | null; // ← NUEVO
+  onToggleLike: (id: string) => void;
 }) {
   const router = useRouter();
   const navLock = useRef(false);
@@ -339,6 +339,7 @@ function StoryCard({
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
+  const [showShare, setShowShare] = useState(false); // ← NUEVO
 
   const hasCover = !!item.cover_url;
   const profileArr = toArray(item.profiles);
@@ -444,7 +445,9 @@ function StoryCard({
             </Text>
           </View>
 
+          {/* ── Footer: likes + comentarios + compartir ─────────────────── */}
           <View style={s.footerRow}>
+            {/* Like */}
             <TouchableOpacity style={s.meta} onPress={handleLikePress} activeOpacity={0.8} disabled={isLiking}>
               <Ionicons
                 name={liked ? 'heart' : 'heart-outline'} size={20}
@@ -460,6 +463,8 @@ function StoryCard({
                 {likesCount} {likesCount === 1 ? 'Like' : 'Likes'}
               </Text>
             </TouchableOpacity>
+
+            {/* Comentarios */}
             <View style={[s.meta, { marginLeft: 16 }]}>
               <Ionicons name="chatbox-outline" size={20} color={C.textSecondary} />
             </View>
@@ -468,10 +473,21 @@ function StoryCard({
                 {commentsCount} {commentsCount === 1 ? 'Comentario' : 'Comentarios'}
               </Text>
             </View>
+
+            {/* ← NUEVO: Compartir */}
+            <TouchableOpacity
+              style={[s.meta, { marginLeft: 'auto' }]}
+              onPress={() => setShowShare(true)}
+              activeOpacity={0.8}
+              hitSlop={10}
+            >
+              <Ionicons name="share-social-outline" size={20} color={C.textSecondary} />
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </View>
 
+      {/* ── Modal likes ─────────────────────────────────────────────────── */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
           <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
@@ -525,6 +541,22 @@ function StoryCard({
           </View>
         </View>
       </Modal>
+
+      {/* ← NUEVO: ShareStorySheet */}
+      {userId && (
+        <ShareStorySheet
+          visible={showShare}
+          onClose={() => setShowShare(false)}
+          currentUserId={userId}
+          story={{
+            id: item.id,
+            title: item.title,
+            cover_url: item.cover_url,
+            author: author,
+            author_avatar: avatar,
+          }}
+        />
+      )}
     </>
   );
 }

@@ -6,14 +6,15 @@ import {
   ActivityIndicator, Animated, Modal, Pressable, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Link, useRouter, useLocalSearchParams } from 'expo-router'; 
+import { Link, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import StoryMessageCard from '../../components/StoryMessageCard'; // ← NUEVO
 
-
+// ── Tipo Message actualizado ──────────────────────────────────────────────────
 type Message = {
   id: string;
   sender_id: string;
@@ -23,6 +24,14 @@ type Message = {
   is_deleted?: boolean;
   edited?: boolean;
   image_url?: string | null;
+  type?: 'text' | 'image' | 'story_share';         // ← NUEVO
+  story_id?: string | null;                          // ← NUEVO
+  story_snapshot?: {                                 // ← NUEVO
+    title: string;
+    cover_url: string | null;
+    author: string;
+    author_avatar: string | null;
+  } | null;
 };
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -73,23 +82,20 @@ export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
- const { id, otherName, otherAvatar, otherUserId, isAdmin, isEarly } =
-      useLocalSearchParams<{
-        id: string;
-        otherName: string;
-        otherAvatar: string;
-        otherUserId: string;
-        isAdmin?: string;
-        isEarly?: string;
-      }>();
+  const { id, otherName, otherAvatar, otherUserId, isAdmin, isEarly } =
+    useLocalSearchParams<{
+      id: string;
+      otherName: string;
+      otherAvatar: string;
+      otherUserId: string;
+      isAdmin?: string;
+      isEarly?: string;
+    }>();
 
-const isAdminBadge = isAdmin === '1';
-const isEarlyBadge = isEarly === '1';
-
+  const isAdminBadge = isAdmin === '1';
+  const isEarlyBadge = isEarly === '1';
 
   const conversationId = id;
-
-
 
   const [myId, setMyId] = useState<string | null>(null);
   const myIdRef = useRef<string | null>(null);
@@ -101,7 +107,6 @@ const isEarlyBadge = isEarly === '1';
   const [sending, setSending] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  // Modales
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [showChatMenu, setShowChatMenu] = useState(false);
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
@@ -114,35 +119,32 @@ const isEarlyBadge = isEarly === '1';
   useEffect(() => { myIdRef.current = myId; }, [myId]);
 
   // ── Carga inicial ─────────────────────────────────────────────────────────
-const loadMessages = useCallback(async (uid: string) => {
-  const [{ data: msgs }, { data: hidden }] = await Promise.all([
-    supabase
-      .from('messages')
-      .select('id, sender_id, body, created_at, read, is_deleted, edited, image_url')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('message_hidden')
-      .select('message_id')
-      .eq('user_id', uid),
-  ]);
+  const loadMessages = useCallback(async (uid: string) => {
+    const [{ data: msgs }, { data: hidden }] = await Promise.all([
+      supabase
+        .from('messages')
+        // ↓ CAMBIO: agregadas las 3 columnas nuevas
+        .select('id, sender_id, body, created_at, read, is_deleted, edited, image_url, type, story_id, story_snapshot')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('message_hidden')
+        .select('message_id')
+        .eq('user_id', uid),
+    ]);
 
-  // ✅ Al abrir el chat, quitar de conversation_hidden — fresh start
+    if (hidden) setHiddenIds(new Set(hidden.map((h: any) => h.message_id)));
 
-  if (hidden) setHiddenIds(new Set(hidden.map((h: any) => h.message_id)));
-
-  if (msgs) {
-    setMessages(msgs);
-    messagesRef.current = msgs;
-    setLoading(false);
-    await supabase.from('messages').update({ read: true })
-      .eq('conversation_id', conversationId)
-      .neq('sender_id', uid).eq('read', false);
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 150);
-  }
-}, [conversationId]);
-
-
+    if (msgs) {
+      setMessages(msgs);
+      messagesRef.current = msgs;
+      setLoading(false);
+      await supabase.from('messages').update({ read: true })
+        .eq('conversation_id', conversationId)
+        .neq('sender_id', uid).eq('read', false);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 150);
+    }
+  }, [conversationId]);
 
   useEffect(() => {
     const init = async () => {
@@ -215,6 +217,7 @@ const loadMessages = useCallback(async (uid: string) => {
       created_at: new Date().toISOString(),
       read: false,
       image_url: imageUrl,
+      type: 'text',
     };
     const withTemp = [...messagesRef.current, tempMsg];
     setMessages(withTemp); messagesRef.current = withTemp;
@@ -222,27 +225,27 @@ const loadMessages = useCallback(async (uid: string) => {
 
     setSending(true);
     const { error } = await supabase.from('messages').insert({
-  conversation_id: conversationId,
-  sender_id: myId,
-  body: msgBody,
-  image_url: imageUrl,
-});
+      conversation_id: conversationId,
+      sender_id: myId,
+      body: msgBody,
+      image_url: imageUrl,
+      type: 'text',
+    });
 
-if (error) {
-  setMessages(prev => prev.filter(m => m.id !== tempMsg.id));
-} else {
-  // ✅ Solo reaparece en el listado cuando se envía un mensaje nuevo
-  await supabase
-    .from('conversation_hidden')
-    .delete()
-    .eq('user_id', myId)
-    .eq('conversation_id', conversationId);
+    if (error) {
+      setMessages(prev => prev.filter(m => m.id !== tempMsg.id));
+    } else {
+      await supabase
+        .from('conversation_hidden')
+        .delete()
+        .eq('user_id', myId)
+        .eq('conversation_id', conversationId);
 
-  await supabase.from('conversations').update({
-    last_message: imageUrl ? '📷 Imagen' : msgBody,
-    last_message_at: new Date().toISOString(),
-  }).eq('id', conversationId);
-}
+      await supabase.from('conversations').update({
+        last_message: imageUrl ? '📷 Imagen' : msgBody,
+        last_message_at: new Date().toISOString(),
+      }).eq('id', conversationId);
+    }
     setSending(false);
   };
 
@@ -255,9 +258,9 @@ if (error) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],       // ✅ sin deprecación
+      mediaTypes: ['images'],
       quality: 0.8,
-      base64: true,                 // ✅ base64 directo, sin FileSystem
+      base64: true,
     });
     if (result.canceled || !result.assets[0]) return;
 
@@ -338,30 +341,26 @@ if (error) {
     await supabase.from('message_hidden').upsert({ user_id: myId, message_id: id });
   };
 
-const handleDeleteConversation = async () => {
-  setShowChatMenu(false);
-  if (!myId) return;
+  const handleDeleteConversation = async () => {
+    setShowChatMenu(false);
+    if (!myId) return;
 
-  // Ocultar todos los mensajes
-  const allIds = messagesRef.current
-    .filter(m => !hiddenIds.has(m.id))
-    .map(m => ({ user_id: myId, message_id: m.id }));
+    const allIds = messagesRef.current
+      .filter(m => !hiddenIds.has(m.id))
+      .map(m => ({ user_id: myId, message_id: m.id }));
 
-  if (allIds.length > 0) {
-    await supabase.from('message_hidden').upsert(allIds);
-  }
+    if (allIds.length > 0) {
+      await supabase.from('message_hidden').upsert(allIds);
+    }
 
-  // ✅ También ocultar la conversación del listado
-  await supabase.from('conversation_hidden').upsert({
-    user_id: myId,
-    conversation_id: conversationId,
-  });
+    await supabase.from('conversation_hidden').upsert({
+      user_id: myId,
+      conversation_id: conversationId,
+    });
 
-  setHiddenIds(prev => new Set([...prev, ...messagesRef.current.map(m => m.id)]));
-  router.back();
-};
-
-
+    setHiddenIds(prev => new Set([...prev, ...messagesRef.current.map(m => m.id)]));
+    router.back();
+  };
 
   // ── FlatList data ─────────────────────────────────────────────────────────
   type FlatItem =
@@ -388,38 +387,27 @@ const handleDeleteConversation = async () => {
           <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
         </TouchableOpacity>
         <View style={s.headerCenter}>
-  {otherAvatar ? (
-    <Image source={{ uri: otherAvatar }} style={s.headerAvatar} />
-  ) : (
-    <View style={[s.headerAvatar, s.avatarPlaceholder]}>
-      <Ionicons name="person-outline" size={16} color="#9CA3AF" />
-    </View>
-  )}
-
-  {/* Tocar aquí lleva al perfil */}
-  <Link
-  href={{
-    pathname: '/profile/[id]',
-    params: {
-      id: otherUserId,
-      source: 'chat',   // ← nuevo
-    },
-  }}
-  asChild
->
-
-    <TouchableOpacity style={s.headerNameRow} activeOpacity={0.8}>
-      <Text style={s.headerName} numberOfLines={1}>{otherName}</Text>
-      {isAdminBadge && (
-        <MaterialIcons name="verified" size={16} color="#FFD700" />
-      )}
-      {isEarlyBadge && (
-        <MaterialIcons name="verified" size={16} color="#06B6D4" />
-      )}
-    </TouchableOpacity>
-  </Link>
-</View>
-
+          {otherAvatar ? (
+            <Image source={{ uri: otherAvatar }} style={s.headerAvatar} />
+          ) : (
+            <View style={[s.headerAvatar, s.avatarPlaceholder]}>
+              <Ionicons name="person-outline" size={16} color="#9CA3AF" />
+            </View>
+          )}
+          <Link
+            href={{
+              pathname: '/profile/[id]',
+              params: { id: otherUserId, source: 'chat' },
+            }}
+            asChild
+          >
+            <TouchableOpacity style={s.headerNameRow} activeOpacity={0.8}>
+              <Text style={s.headerName} numberOfLines={1}>{otherName}</Text>
+              {isAdminBadge && <MaterialIcons name="verified" size={16} color="#FFD700" />}
+              {isEarlyBadge && <MaterialIcons name="verified" size={16} color="#06B6D4" />}
+            </TouchableOpacity>
+          </Link>
+        </View>
         <TouchableOpacity hitSlop={10} style={s.iconBtn} onPress={() => setShowChatMenu(true)}>
           <Ionicons name="ellipsis-vertical" size={22} color="#F3F4F6" />
         </TouchableOpacity>
@@ -429,7 +417,7 @@ const handleDeleteConversation = async () => {
         style={{ flex: 1 }}
         behavior="padding"
         keyboardVerticalOffset={56 + insets.top}
-        >
+      >
         {loading ? <MessagesSkeleton /> : (
           <FlatList
             ref={flatListRef}
@@ -439,17 +427,16 @@ const handleDeleteConversation = async () => {
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
-            <View style={s.emptyState}>
+              <View style={s.emptyState}>
                 <View style={s.emptyIconWrap}>
-                <Ionicons name="chatbubbles-outline" size={48} color="#2C2C33" />
+                  <Ionicons name="chatbubbles-outline" size={48} color="#2C2C33" />
                 </View>
                 <Text style={s.emptyTitle}>Aún no hay mensajes</Text>
                 <Text style={s.emptySubtitle}>
-                Sé el primero en romper el silencio 👻{'\n'}escribe algo para empezar
+                  Sé el primero en romper el silencio 👻{'\n'}escribe algo para empezar
                 </Text>
-            </View>
+              </View>
             }
-
             renderItem={({ item }) => {
               if (item.kind === 'label') {
                 return (
@@ -458,10 +445,35 @@ const handleDeleteConversation = async () => {
                   </View>
                 );
               }
+
               const msg = item.msg;
               const isMine = msg.sender_id === myId;
               const isTemp = msg.id.startsWith('temp-');
               const isDeleted = !!msg.is_deleted;
+
+              // ── NUEVO: historia compartida ──────────────────────────────
+              if (msg.type === 'story_share') {
+                return (
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onLongPress={() => handleLongPress(msg)}
+                    delayLongPress={300}
+                    style={[s.msgRow, isMine ? s.msgRowRight : s.msgRowLeft]}
+                  >
+                    {!isMine && (
+                      otherAvatar
+                        ? <Image source={{ uri: otherAvatar }} style={s.msgAvatar} />
+                        : <View style={[s.msgAvatar, s.avatarPlaceholder]} />
+                    )}
+                    <StoryMessageCard
+                      storyId={msg.story_id ?? null}
+                      snapshot={msg.story_snapshot ?? null}
+                      isDeleted={isDeleted}
+                    />
+                  </TouchableOpacity>
+                );
+              }
+              // ── FIN NUEVO ───────────────────────────────────────────────
 
               return (
                 <TouchableOpacity
@@ -483,8 +495,8 @@ const handleDeleteConversation = async () => {
                     msg.image_url && !msg.body && { padding: 4 },
                   ]}>
                     {msg.image_url && !isDeleted && (
-                        <Image source={{ uri: msg.image_url }} style={s.msgImage} resizeMode="cover" />
-                        )}
+                      <Image source={{ uri: msg.image_url }} style={s.msgImage} resizeMode="cover" />
+                    )}
                     {(msg.body || isDeleted) && (
                       <Text style={[s.bubbleTxt, isDeleted && s.deletedTxt]}>
                         {isDeleted ? '🚫 Mensaje eliminado' : msg.body}
@@ -575,13 +587,17 @@ const handleDeleteConversation = async () => {
       >
         <Pressable style={s.overlay} onPress={() => setSelectedMsg(null)}>
           <View style={[s.actionSheet, { paddingBottom: insets.bottom + 8 }]}>
-            {selectedMsg?.sender_id === myId && (
+            {selectedMsg?.sender_id === myId && selectedMsg?.type !== 'story_share' && (
               <>
                 <TouchableOpacity style={s.actionRow} onPress={handleEdit}>
                   <Ionicons name="pencil-outline" size={20} color="#F3F4F6" />
                   <Text style={s.actionTxt}>Editar</Text>
                 </TouchableOpacity>
                 <View style={s.actionDivider} />
+              </>
+            )}
+            {selectedMsg?.sender_id === myId && (
+              <>
                 <TouchableOpacity style={s.actionRow} onPress={handleDeleteForAll}>
                   <Ionicons name="trash-outline" size={20} color="#ef4444" />
                   <Text style={[s.actionTxt, { color: '#ef4444' }]}>Borrar para todos</Text>
@@ -639,17 +655,13 @@ const s = StyleSheet.create({
     backgroundColor: '#0F1016', borderWidth: 1, borderColor: '#2C2C33',
     alignItems: 'center', justifyContent: 'center',
   },
-
-
   headerName: { color: '#F3F4F6', fontWeight: '700', fontSize: 15 },
-headerNameRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 4,
-  flexShrink: 1,
-},
-
-
+  headerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 1,
+  },
   dateLabelWrap: {
     alignSelf: 'center', backgroundColor: '#1a1a1aff',
     borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4, marginVertical: 12,
@@ -694,7 +706,6 @@ headerNameRow: {
   },
   actionTxt: { color: '#F3F4F6', fontSize: 16, fontWeight: '500' },
   actionDivider: { height: 1, backgroundColor: '#181818ff', marginHorizontal: 20 },
-  // Preview imagen
   previewOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
     justifyContent: 'center', alignItems: 'center',
@@ -712,35 +723,14 @@ headerNameRow: {
     borderWidth: 1, borderColor: '#3a3a3a',
   },
   previewBtnTxt: { color: '#F3F4F6', fontWeight: '600', fontSize: 15 },
-  emptyState: {
-  alignItems: 'center',
-  justifyContent: 'center',
-  paddingTop: 80,
-  gap: 12,
-},
-emptyIconWrap: {
-  width: 88,
-  height: 88,
-  borderRadius: 44,
-  backgroundColor: '#0f0f0fff',
-  borderWidth: 1,
-  borderColor: '#1f1f1fff',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginBottom: 4,
-},
-emptyTitle: {
-  color: '#F3F4F6',
-  fontSize: 18,
-  fontWeight: '700',
-},
-emptySubtitle: {
-  color: '#6B7280',
-  fontSize: 14,
-  textAlign: 'center',
-  lineHeight: 22,
-},
-
+  emptyState: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 12 },
+  emptyIconWrap: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: '#0f0f0fff', borderWidth: 1, borderColor: '#1f1f1fff',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  emptyTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
+  emptySubtitle: { color: '#6B7280', fontSize: 14, textAlign: 'center', lineHeight: 22 },
 });
 
 const sk = StyleSheet.create({

@@ -23,6 +23,7 @@ import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import ShareStorySheet from '../../components/ShareStorySheet';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -41,9 +42,10 @@ import Animated, {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 type Params = {
   id: string;
-  source?: 'home' | 'profile' | 'notifications';
+  source?: 'home' | 'profile' | 'notifications' | 'chat' | 'public-profile';
 };
 
 type Comment = {
@@ -65,7 +67,7 @@ type LikeUser = {
   created_at: string;
 };
 
-// ─── Orb pulsante ────────────────────────────────────────────────────────────
+// ─── Orb pulsante ─────────────────────────────────────────────────────────────
 function LoadingOrb() {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.5);
@@ -113,7 +115,7 @@ function LoadingOrb() {
   );
 }
 
-// ─── Pantalla elegante de carga ───────────────────────────────────────────────
+// ─── Skeleton de carga ────────────────────────────────────────────────────────
 function StorySkeleton() {
   const fadeIn = useSharedValue(0);
 
@@ -139,14 +141,7 @@ function StorySkeleton() {
     >
       <LoadingOrb />
       <View style={{ alignItems: 'center', gap: 6 }}>
-        <Text
-          style={{
-            color: '#F3F4F6',
-            fontSize: 18,
-            fontWeight: '700',
-            letterSpacing: 0.4,
-          }}
-        >
+        <Text style={{ color: '#F3F4F6', fontSize: 18, fontWeight: '700', letterSpacing: 0.4 }}>
           Cargando historia
         </Text>
         <Text style={{ color: '#4B4B5A', fontSize: 13 }}>Por favor espera...</Text>
@@ -163,6 +158,7 @@ export default function StoryDetail() {
 
   const storyId = useMemo(() => id ?? String(Date.now()), [id]);
 
+  // ── Estado ────────────────────────────────────────────────────────────────
   const [likeCount, setLikeCount] = useState<number>(0);
   const [liked, setLiked] = useState<boolean>(false);
   const [commentInput, setCommentInput] = useState('');
@@ -174,6 +170,7 @@ export default function StoryDetail() {
   const [storyBody, setStoryBody] = useState<string>('');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState<string>('');
+  const [authorAvatar, setAuthorAvatar] = useState<string | null>(null); // ← NUEVO
 
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
@@ -192,6 +189,8 @@ export default function StoryDetail() {
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
 
+  const [showShare, setShowShare] = useState(false); // ← NUEVO
+
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
     title: string;
@@ -207,7 +206,7 @@ export default function StoryDetail() {
     variant: 'info',
   });
 
-  // Fade-in del contenido cuando termina la carga
+  // Fade-in del contenido
   const contentOpacity = useSharedValue(0);
   const contentStyle = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
 
@@ -254,14 +253,14 @@ export default function StoryDetail() {
     };
   }, []);
 
-  // 1️⃣ Obtiene el usuario en paralelo (no bloquea la historia)
+  // ── 1. Obtiene el usuario en paralelo ────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUserId(user?.id || null);
     });
   }, []);
 
-  // 2️⃣ Verifica admin solo cuando userId esté listo
+  // ── 2. Verifica admin cuando userId esté listo ───────────────────────────
   useEffect(() => {
     if (!userId) return;
     supabase
@@ -272,7 +271,7 @@ export default function StoryDetail() {
       .then(({ data }) => setIsAdmin(data?.is_admin ?? false));
   }, [userId]);
 
-  // 3️⃣ Carga la historia inmediatamente, sin esperar userId
+  // ── 3. Carga la historia ─────────────────────────────────────────────────
   useEffect(() => {
     const loadStory = async () => {
       try {
@@ -286,7 +285,7 @@ export default function StoryDetail() {
             likes_count,
             comments_count,
             author_id,
-            profiles!stories_author_id_fkey ( display_name )
+            profiles!stories_author_id_fkey ( display_name, avatar_url )
           `)
           .eq('id', storyId)
           .maybeSingle();
@@ -300,6 +299,7 @@ export default function StoryDetail() {
           setStoryBody(data.body || 'Sin contenido.');
           setStoryCover(data.cover_url || undefined);
           setAuthorName(profile?.display_name?.trim() || '');
+          setAuthorAvatar(profile?.avatar_url ?? null); // ← NUEVO
           setLikeCount(data.likes_count || 0);
           setInitialCommentCount(data.comments_count || 0);
           setStoryAuthorId(data.author_id || null);
@@ -319,7 +319,7 @@ export default function StoryDetail() {
     loadStory();
   }, [storyId]);
 
-  // 4️⃣ Verifica si el usuario dio like (solo cuando ya tenemos userId)
+  // ── 4. Verifica si el usuario dio like ───────────────────────────────────
   useEffect(() => {
     if (!userId) return;
     supabase
@@ -337,10 +337,7 @@ export default function StoryDetail() {
       .eq('story_id', storyId)
       .order('created_at', { ascending: false });
 
-    if (!rows) {
-      setCommentList([]);
-      return;
-    }
+    if (!rows) { setCommentList([]); return; }
 
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
     const { data: profiles } = await supabase
@@ -380,11 +377,7 @@ export default function StoryDetail() {
         .select(`
           user_id,
           profiles!story_likes_user_id_fkey (
-            id,
-            display_name,
-            avatar_url,
-            is_admin,
-            created_at
+            id, display_name, avatar_url, is_admin, created_at
           )
         `)
         .eq('story_id', storyId);
@@ -398,7 +391,6 @@ export default function StoryDetail() {
         is_admin: like.profiles.is_admin,
         created_at: like.profiles.created_at,
       }));
-
       setLikeUsers(users);
     } catch (e: any) {
       console.error('Error cargando likes:', e);
@@ -430,8 +422,7 @@ export default function StoryDetail() {
   }
 
   function confirmDelete(comment: Comment) {
-    const canDelete =
-      userId === comment.userId || userId === storyAuthorId || isAdmin;
+    const canDelete = userId === comment.userId || userId === storyAuthorId || isAdmin;
     if (!canDelete) {
       showNotification('Sin permiso', 'No puedes borrar este comentario', 'error');
       return;
@@ -501,11 +492,12 @@ export default function StoryDetail() {
 
   const displayCommentCount = commentList.length || initialCommentCount;
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#030000' }}>
 
-        {/* Header — siempre visible */}
+        {/* ── Header ─────────────────────────────────────────────────────── */}
         <View style={[s.header, { paddingTop: insets.top }]}>
           <TouchableOpacity onPress={handleBack} hitSlop={10} style={s.backBtn}>
             <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
@@ -519,21 +511,32 @@ export default function StoryDetail() {
             <Text style={s.headerTitle} numberOfLines={1}>{storyTitle}</Text>
           )}
 
-          {!loading && (userId === storyAuthorId || isAdmin) ? (
-            <TouchableOpacity
-              onPress={() => setShowDeleteStoryModal(true)}
-              hitSlop={10}
-              style={s.deleteBtn}
-            >
-              <Ionicons name="trash-outline" size={22} color="#ef4444" />
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 32 }} />
-          )}
+          {/* Botones derecha: compartir + eliminar */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {!loading && (
+              <TouchableOpacity
+                onPress={() => setShowShare(true)}
+                hitSlop={10}
+                style={s.headerIconBtn}
+              >
+                <Ionicons name="share-social-outline" size={22} color="#F3F4F6" />
+              </TouchableOpacity>
+            )}
+            {!loading && (userId === storyAuthorId || isAdmin) ? (
+              <TouchableOpacity
+                onPress={() => setShowDeleteStoryModal(true)}
+                hitSlop={10}
+                style={s.deleteBtn}
+              >
+                <Ionicons name="trash-outline" size={22} color="#ef4444" />
+              </TouchableOpacity>
+            ) : (
+              <View style={{ width: 32 }} />
+            )}
+          </View>
         </View>
 
         <View style={{ flex: 1 }}>
-          {/* Pantalla de carga elegante */}
           {loading ? (
             <StorySkeleton />
           ) : (
@@ -552,7 +555,6 @@ export default function StoryDetail() {
 
                 <Text style={s.bodyText}>{storyBody}</Text>
 
-                {/* Solo muestra autor si hay nombre */}
                 {authorName ? (
                   <View style={s.authorRow}>
                     <Text style={s.author}>— {authorName}</Text>
@@ -610,36 +612,18 @@ export default function StoryDetail() {
                         activeOpacity={0.9}
                         disabled={!canDeleteThisComment}
                       >
-                        <View
-                          style={[
-                            s.commentCard,
-                            !canDeleteThisComment && { opacity: 0.6 },
-                          ]}
-                        >
+                        <View style={[s.commentCard, !canDeleteThisComment && { opacity: 0.6 }]}>
                           <View style={s.commentHeader}>
                             {c.avatarUrl ? (
-                              <Image
-                                source={{ uri: c.avatarUrl }}
-                                style={s.commentAvatar}
-                              />
+                              <Image source={{ uri: c.avatarUrl }} style={s.commentAvatar} />
                             ) : (
-                              <View
-                                style={[
-                                  s.commentAvatar,
-                                  { alignItems: 'center', justifyContent: 'center' },
-                                ]}
-                              >
+                              <View style={[s.commentAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
                                 <Ionicons name="person-outline" size={14} color="#9CA3AF" />
                               </View>
                             )}
-                            <Link
-                              href={{ pathname: '/profile/[id]', params: { id: c.userId } }}
-                              asChild
-                            >
+                            <Link href={{ pathname: '/profile/[id]', params: { id: c.userId } }} asChild>
                               <TouchableOpacity>
-                                <View
-                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                                >
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                   <Text style={s.commentAuthor}>{c.author}</Text>
                                   {c.is_admin && (
                                     <MaterialIcons name="verified" size={12} color="#FFD700" />
@@ -661,7 +645,7 @@ export default function StoryDetail() {
             </Animated.View>
           )}
 
-          {/* Barra de comentarios — siempre visible */}
+          {/* ── Barra de comentarios ──────────────────────────────────────── */}
           <View
             style={[
               s.inputBar,
@@ -694,7 +678,7 @@ export default function StoryDetail() {
           </View>
         </View>
 
-        {/* Modales */}
+        {/* ── Modales ───────────────────────────────────────────────────────── */}
         <ImageZoomModal
           visible={showImageZoom}
           imageUri={storyCover || ''}
@@ -705,9 +689,7 @@ export default function StoryDetail() {
           <View style={s.modalOverlay}>
             <View style={s.modalBox}>
               <Text style={s.modalTitle}>Eliminar comentario</Text>
-              <Text style={s.modalText}>
-                ¿Seguro que quieres eliminar este comentario?
-              </Text>
+              <Text style={s.modalText}>¿Seguro que quieres eliminar este comentario?</Text>
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteModal(false)}
@@ -716,9 +698,7 @@ export default function StoryDetail() {
                   <Text style={s.modalBtnText}>Cancelar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() =>
-                    selectedComment && handleDeleteComment(selectedComment.id)
-                  }
+                  onPress={() => selectedComment && handleDeleteComment(selectedComment.id)}
                   style={[s.modalBtn, { backgroundColor: '#ef4444' }]}
                 >
                   <Text style={[s.modalBtnText, { color: '#fff' }]}>Eliminar</Text>
@@ -735,9 +715,7 @@ export default function StoryDetail() {
                 <Ionicons name="warning" size={28} color="#ef4444" />
               </View>
               <Text style={s.modalTitle}>Eliminar historia</Text>
-              <Text style={s.modalText}>
-                Esta acción no se puede deshacer. ¿Estás seguro?
-              </Text>
+              <Text style={s.modalText}>Esta acción no se puede deshacer. ¿Estás seguro?</Text>
               <View style={s.modalButtons}>
                 <TouchableOpacity
                   onPress={() => setShowDeleteStoryModal(false)}
@@ -764,10 +742,7 @@ export default function StoryDetail() {
 
         <Modal visible={showLikesModal} transparent animationType="fade">
           <View style={s.likesOverlay}>
-            <TouchableOpacity
-              style={s.likeBackdrop}
-              onPress={() => setShowLikesModal(false)}
-            />
+            <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
             <View style={s.likesSheet}>
               <View style={s.likesHeader}>
                 <Text style={s.likesTitle}>Les dio like</Text>
@@ -775,7 +750,6 @@ export default function StoryDetail() {
                   <Ionicons name="close" size={24} color="#F3F4F6" />
                 </TouchableOpacity>
               </View>
-
               {loadingLikes ? (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                   <ActivityIndicator size="large" color="#F3F4F6" />
@@ -793,57 +767,24 @@ export default function StoryDetail() {
                   renderItem={({ item: user }) => {
                     const isUserEarly = new Date(user.created_at) < new Date('2026-01-01');
                     return (
-                      <Link
-                        href={{ pathname: '/profile/[id]', params: { id: user.id } }}
-                        asChild
-                      >
+                      <Link href={{ pathname: '/profile/[id]', params: { id: user.id } }} asChild>
                         <TouchableOpacity
                           style={s.likeUserCard}
                           onPress={() => setShowLikesModal(false)}
                         >
                           {user.avatar_url ? (
-                            <Image
-                              source={{ uri: user.avatar_url }}
-                              style={s.likeUserAvatar}
-                            />
+                            <Image source={{ uri: user.avatar_url }} style={s.likeUserAvatar} />
                           ) : (
-                            <View
-                              style={[
-                                s.likeUserAvatar,
-                                {
-                                  backgroundColor: '#0F1016',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                },
-                              ]}
-                            >
+                            <View style={[s.likeUserAvatar, { backgroundColor: '#0F1016', alignItems: 'center', justifyContent: 'center' }]}>
                               <Ionicons name="person-outline" size={16} color="#9CA3AF" />
                             </View>
                           )}
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 4,
-                              flex: 1,
-                            }}
-                          >
-                            <Text style={s.likeUserName}>
-                              {user.display_name || 'Usuario'}
-                            </Text>
-                            {user.is_admin && (
-                              <MaterialIcons name="verified" size={14} color="#FFD700" />
-                            )}
-                            {isUserEarly && (
-                              <MaterialIcons name="verified" size={14} color="#06B6D4" />
-                            )}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                            <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
+                            {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
+                            {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
                           </View>
-                          <Ionicons
-                            name="chevron-forward"
-                            size={20}
-                            color="#9CA3AF"
-                            style={{ marginLeft: 'auto' }}
-                          />
+                          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
                         </TouchableOpacity>
                       </Link>
                     );
@@ -854,22 +795,13 @@ export default function StoryDetail() {
           </View>
         </Modal>
 
-        <Modal
-          visible={showSheet}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowSheet(false)}
-        >
+        <Modal visible={showSheet} transparent animationType="fade" onRequestClose={() => setShowSheet(false)}>
           <View style={s.overlay}>
             <View style={s.sheet}>
-              <View
-                style={[
-                  s.iconWrap,
-                  sheet.variant === 'error'
-                    ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
-                    : { backgroundColor: '#1F2937', borderColor: '#374151' },
-                ]}
-              >
+              <View style={[s.iconWrap, sheet.variant === 'error'
+                ? { backgroundColor: '#3F1D1D', borderColor: '#7F1D1D' }
+                : { backgroundColor: '#1F2937', borderColor: '#374151' }
+              ]}>
                 <Ionicons
                   name={sheet.variant === 'error' ? 'alert-circle' : 'checkmark-circle'}
                   size={24}
@@ -879,16 +811,30 @@ export default function StoryDetail() {
               <Text style={s.sheetTitle}>{sheet.title}</Text>
               <Text style={s.sheetMsg}>{sheet.message}</Text>
               <View style={s.sheetActions}>
-                <TouchableOpacity
-                  style={[s.sheetBtn, s.sheetBtnPrimary]}
-                  onPress={sheet.onConfirm}
-                >
+                <TouchableOpacity style={[s.sheetBtn, s.sheetBtnPrimary]} onPress={sheet.onConfirm}>
                   <Text style={s.sheetBtnText}>{sheet.confirmText}</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
+
+        {/* ── ShareStorySheet ─────────────────────────────────────────────── */}
+        {userId && (
+          <ShareStorySheet
+            visible={showShare}
+            onClose={() => setShowShare(false)}
+            currentUserId={userId}
+            story={{
+              id: storyId,
+              title: storyTitle,
+              cover_url: storyCover ?? null,
+              author: authorName,
+              author_avatar: authorAvatar,
+            }}
+          />
+        )}
+
       </SafeAreaView>
     </GestureHandlerRootView>
   );
@@ -953,19 +899,11 @@ function ImageZoomModal({
         <TouchableOpacity style={s.zoomCloseBtn} onPress={onClose} hitSlop={10}>
           <Ionicons name="close-circle" size={40} color="#fff" />
         </TouchableOpacity>
-        <TapGestureHandler
-          ref={doubleTapRef}
-          onHandlerStateChange={onDoubleTap}
-          numberOfTaps={2}
-        >
+        <TapGestureHandler ref={doubleTapRef} onHandlerStateChange={onDoubleTap} numberOfTaps={2}>
           <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
-                <Image
-                  source={{ uri: imageUri }}
-                  style={s.zoomImage}
-                  resizeMode="contain"
-                />
+                <Image source={{ uri: imageUri }} style={s.zoomImage} resizeMode="contain" />
               </Animated.View>
             </PinchGestureHandler>
           </Animated.View>
@@ -994,6 +932,7 @@ const s = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
+  headerIconBtn: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
   deleteBtn: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
   content: { paddingHorizontal: 16, paddingTop: 10, gap: 12 },
   coverImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12 },
