@@ -9,6 +9,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { BadgeIcon } from '../profile/settings';
 
 type ConversationItem = {
   id: string;
@@ -20,6 +21,7 @@ type ConversationItem = {
   unreadCount: number;
   isAdmin: boolean;
   isEarly: boolean;
+  otherBadges?: any[];
 };
 
 
@@ -135,8 +137,60 @@ export default function MessagesScreen() {
       unreadCount: unreadResults[i].count ?? 0,
       isAdmin: profile?.is_admin ?? false,
       isEarly,
+      otherBadges: [],
     };
   });
+
+    // Cargar insignias de los otros usuarios
+    if (otherIds.length) {
+      const badgesMap = new Map<string, any[]>();
+      const { data: assignedBadges } = await supabase
+        .from('user_badges')
+        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+        .in('user_id', otherIds)
+        .order('granted_at', { ascending: true });
+      if (assignedBadges) {
+        assignedBadges.forEach((row: any) => {
+          const uid = row.user_id;
+          const badge = row.badges;
+          if (badge) {
+            const existing = badgesMap.get(uid) || [];
+            existing.push(badge);
+            badgesMap.set(uid, existing);
+          }
+        });
+      }
+      const { data: scopeBadges } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+      (scopeBadges || []).forEach((badge: any) => {
+        if (badge.scope === 'all_users') {
+          otherIds.forEach((oid) => {
+            const existing = badgesMap.get(oid) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(oid, existing);
+            }
+          });
+        } else if (badge.scope === 'admin_only') {
+          otherIds.forEach((oid) => {
+            const p = profileMap.get(oid);
+            if (p?.is_admin) {
+              const existing = badgesMap.get(oid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(oid, existing);
+              }
+            }
+          });
+        }
+      });
+      // Asignar badges
+      mapped.forEach((conv) => {
+        conv.otherBadges = badgesMap.get(conv.otherUserId) || [];
+      });
+    }
 
 
     setConversations(mapped);
@@ -274,12 +328,9 @@ export default function MessagesScreen() {
               <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={s.name} numberOfLines={1}>{item.otherName}</Text>
-              {item.isAdmin && (
-                <MaterialIcons name="verified" size={16} color="#FFD700" />
-              )}
-              {item.isEarly && (
-                <MaterialIcons name="verified" size={16} color="#06B6D4" />
-              )}
+              {item.otherBadges?.map((badge: any, idx: number) => (
+                <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+              ))}
             </View>
             <Text style={s.preview} numberOfLines={1}>
               {item.lastMessage ?? 'Sin mensajes aún'}

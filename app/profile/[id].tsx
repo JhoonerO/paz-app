@@ -11,14 +11,17 @@ import {
   Modal,
   Dimensions,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Link, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
-import ShareStorySheet from '../../components/ShareStorySheet'; // ← NUEVO
+import ShareStorySheet from '../../components/ShareStorySheet';
+import { BadgeIcon } from './settings';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -36,6 +39,8 @@ import Animated, {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+type StoryCategory = 'mito' | 'leyenda' | 'urbana' | 'otra';
+
 type DBStory = {
   id: string;
   title: string;
@@ -45,7 +50,12 @@ type DBStory = {
   comments_count: number;
   created_at: string;
   author_id: string;
-  profiles: { display_name: string | null; avatar_url: string | null }[] | null;
+  category: StoryCategory | null;
+  profiles: {
+    display_name: string | null;
+    avatar_url: string | null;
+    user_badges?: any[];
+  }[] | null;
   liked_at?: string;
 };
 
@@ -64,9 +74,59 @@ type LikeUser = {
   avatar_url: string | null;
   is_admin: boolean;
   created_at: string;
+  userBadges?: any[];
 };
 
 const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
+
+type ProfileBadge = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  icon: string | null;
+  scope?: 'admin_only' | 'all_users' | 'custom';
+};
+
+// ── Config de categorías para el badge ───────────────────────────────────────
+
+const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: string }> = {
+  mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
+  leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
+  urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+};
+
+function CategoryBadge({ category }: { category: StoryCategory }) {
+  const cfg = CAT_CONFIG[category];
+  if (!cfg) return null;
+  return (
+    <View style={catStyles.badge}>
+      <MaterialCommunityIcons name={cfg.icon as any} size={12} color={cfg.color} />
+      <Text style={[catStyles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+const catStyles = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: '#242424',
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+});
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function usePulse() {
@@ -158,7 +218,8 @@ export default function PublicProfile() {
   const [displayName, setDisplayName] = useState<string>('Usuario');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [likesPublic, setLikesPublic] = useState<boolean>(true);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false); // Del perfil visitado
+  const [isViewerAdmin, setIsViewerAdmin] = useState<boolean>(false); // Del visitante
   const [createdAt, setCreatedAt] = useState<string>('');
 
   const [tab, setTab] = useState<'mine' | 'likes'>('mine');
@@ -168,10 +229,15 @@ export default function PublicProfile() {
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
-  const [badgeModal, setBadgeModal] = useState<{
-    visible: boolean;
-    type: 'admin' | 'early' | null;
-  }>({ visible: false, type: null });
+  const [userBadges, setUserBadges] = useState<ProfileBadge[]>([]);
+  const [userBadgeIds, setUserBadgeIds] = useState<string[]>([]); // IDs de las asignadas
+  const [selectedUserBadge, setSelectedUserBadge] = useState<ProfileBadge & { userBadgeId?: string } | null>(null);
+  const [showBadgeInfo, setShowBadgeInfo] = useState(false);
+
+  // Admin: regalar insignias
+  const [showGiftModal, setShowGiftModal] = useState(false);
+  const [allBadges, setAllBadges] = useState<ProfileBadge[]>([]);
+  const [giftingBadge, setGiftingBadge] = useState(false);
 
   const loadFromSupabase = useCallback(async () => {
     try {
@@ -180,6 +246,18 @@ export default function PublicProfile() {
       const { data: authData } = await supabase.auth.getUser();
       const uidViewer = authData.user?.id ?? null;
       setViewerId(uidViewer);
+
+      // Verificar si el visitante es admin
+      if (uidViewer) {
+        const { data: viewerProfile } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', uidViewer)
+          .single();
+        setIsViewerAdmin(viewerProfile?.is_admin ?? false);
+      } else {
+        setIsViewerAdmin(false);
+      }
 
       const { data: prof, error: profErr } = await supabase
         .from('profiles')
@@ -192,13 +270,55 @@ export default function PublicProfile() {
       setAvatarUrl(prof?.avatar_url ?? null);
       setLikesPublic(prof?.likes_public ?? true);
       setIsAdmin(prof?.is_admin ?? false);
+      const profileIsAdmin = prof?.is_admin ?? false;
       setCreatedAt(prof?.created_at ?? '');
+
+      // Cargar TODAS las insignias (para admin pueda regalar)
+      const { data: allBadgeRows, error: allBadgeErr } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+      if (!allBadgeErr) setAllBadges(allBadgeRows as ProfileBadge[]);
+      else setAllBadges([]);
+
+      // Cargar insignias visibles para ESTE perfil
+      // 1. admin_only si el perfil es admin
+      // 2. all_users siempre
+      // 3. custom solo si están asignadas en user_badges
+      try {
+        const scopeBadges = (allBadgeRows || [])
+          .filter((b: any) => {
+            if (b.scope === 'admin_only') return profileIsAdmin;
+            if (b.scope === 'all_users') return true;
+            return false;
+          }) as ProfileBadge[];
+
+        const { data: assignedBadges, error: assignedErr } = await supabase
+          .from('user_badges')
+          .select(`badges ( id, name, description, color, icon, scope )`)
+          .eq('user_id', profileId);
+
+        if (!assignedErr && assignedBadges) {
+          const customBadges = assignedBadges
+            .map((r: any) => ({ ...r.badges, userBadgeId: r.id }))
+            .filter((b: any) => b.scope === 'custom');
+          const allBadges = [...scopeBadges, ...customBadges];
+          setUserBadges(allBadges);
+          setUserBadgeIds(allBadges.map((b: any) => b.id));
+        } else {
+          setUserBadges(scopeBadges);
+          setUserBadgeIds(scopeBadges.map((b: any) => b.id));
+        }
+      } catch {
+        setUserBadges([]);
+        setUserBadgeIds([]);
+      }
 
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
         .select(`
           id, title, body, cover_url, likes_count, comments_count,
-          created_at, author_id,
+          created_at, author_id, category,
           profiles!stories_author_id_fkey ( display_name, avatar_url )
         `)
         .eq('author_id', profileId)
@@ -214,12 +334,72 @@ export default function PublicProfile() {
             profiles: [{
               display_name: current?.display_name ?? prof?.display_name ?? 'Autor',
               avatar_url: current?.avatar_url ?? prof?.avatar_url ?? null,
+              user_badges: [],
             }],
           };
         }
         return { ...story, profiles: embeddedArr };
       });
-      setStories(storiesWithAuthor);
+
+      // Cargar insignias de los autores de las historias
+      const storyAuthorIds = Array.from(new Set((mine || []).map((s: any) => s.author_id)));
+      const storyBadgesMap = new Map<string, any[]>();
+      if (storyAuthorIds.length) {
+        const { data: assignedBadges } = await supabase
+          .from('user_badges')
+          .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+          .in('user_id', storyAuthorIds)
+          .order('granted_at', { ascending: true });
+        if (assignedBadges) {
+          assignedBadges.forEach((row: any) => {
+            const uid = row.user_id;
+            const badge = row.badges;
+            if (badge) {
+              const existing = storyBadgesMap.get(uid) || [];
+              existing.push(badge);
+              storyBadgesMap.set(uid, existing);
+            }
+          });
+        }
+        const { data: scopeBadges } = await supabase
+          .from('badges')
+          .select('id, name, description, color, icon, scope')
+          .order('name', { ascending: true });
+        (scopeBadges || []).forEach((badge: any) => {
+          if (badge.scope === 'all_users') {
+            storyAuthorIds.forEach((aid) => {
+              const existing = storyBadgesMap.get(aid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                storyBadgesMap.set(aid, existing);
+              }
+            });
+          } else if (badge.scope === 'admin_only') {
+            storyAuthorIds.forEach((aid) => {
+              if (profileIsAdmin) {
+                const existing = storyBadgesMap.get(aid) || [];
+                if (!existing.some((b: any) => b.id === badge.id)) {
+                  existing.push(badge);
+                  storyBadgesMap.set(aid, existing);
+                }
+              }
+            });
+          }
+        });
+      }
+
+      const storiesWithBadges = storiesWithAuthor.map((st: any) => {
+        const authorId = st.author_id;
+        const authorBadges = storyBadgesMap.get(authorId) || [];
+        return {
+          ...st,
+          profiles: [{
+            ...st.profiles?.[0],
+            user_badges: authorBadges,
+          }],
+        };
+      });
+      setStories(storiesWithBadges);
 
       let likedList: DBStory[] = [];
       if (prof?.likes_public) {
@@ -239,7 +419,7 @@ export default function PublicProfile() {
             .from('stories')
             .select(`
               id, title, body, cover_url, likes_count, comments_count,
-              created_at, author_id,
+              created_at, author_id, category,
               profiles!stories_author_id_fkey ( display_name, avatar_url )
             `)
             .in('id', ids);
@@ -266,7 +446,66 @@ export default function PublicProfile() {
             return {
               ...story,
               liked_at: likedAtMap.get(story.id),
-              profiles: [{ display_name, avatar_url }],
+              profiles: [{ display_name, avatar_url, user_badges: [] }],
+            };
+          });
+
+          // Cargar insignias de los autores de las historias con like
+          const likedStoryAuthorIds = Array.from(new Set((liked ?? []).map((s: any) => s.author_id)));
+          const likedBadgesMap = new Map<string, any[]>();
+          if (likedStoryAuthorIds.length) {
+            const { data: assignedBadges } = await supabase
+              .from('user_badges')
+              .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+              .in('user_id', likedStoryAuthorIds)
+              .order('granted_at', { ascending: true });
+            if (assignedBadges) {
+              assignedBadges.forEach((row: any) => {
+                const uid = row.user_id;
+                const badge = row.badges;
+                if (badge) {
+                  const existing = likedBadgesMap.get(uid) || [];
+                  existing.push(badge);
+                  likedBadgesMap.set(uid, existing);
+                }
+              });
+            }
+            const { data: scopeBadges } = await supabase
+              .from('badges')
+              .select('id, name, description, color, icon, scope')
+              .order('name', { ascending: true });
+            (scopeBadges || []).forEach((badge: any) => {
+              if (badge.scope === 'all_users') {
+                likedStoryAuthorIds.forEach((aid) => {
+                  const existing = likedBadgesMap.get(aid) || [];
+                  if (!existing.some((b: any) => b.id === badge.id)) {
+                    existing.push(badge);
+                    likedBadgesMap.set(aid, existing);
+                  }
+                });
+              } else if (badge.scope === 'admin_only') {
+                likedStoryAuthorIds.forEach((aid) => {
+                  if (profileIsAdmin) {
+                    const existing = likedBadgesMap.get(aid) || [];
+                    if (!existing.some((b: any) => b.id === badge.id)) {
+                      existing.push(badge);
+                      likedBadgesMap.set(aid, existing);
+                    }
+                  }
+                });
+              }
+            });
+          }
+
+          likedList = likedList.map((st: any) => {
+            const authorId = st.author_id;
+            const authorBadges = likedBadgesMap.get(authorId) || [];
+            return {
+              ...st,
+              profiles: [{
+                ...st.profiles?.[0],
+                user_badges: authorBadges,
+              }],
             };
           });
 
@@ -301,6 +540,42 @@ export default function PublicProfile() {
       setLoading(false);
     }
   }, [profileId]);
+
+  // ── Regalar insignia ───────────────────────────────────────────────────
+  const giftBadge = async (badgeId: string) => {
+    if (giftingBadge) return;
+    setGiftingBadge(true);
+    const { error } = await supabase
+      .from('user_badges')
+      .insert({ user_id: profileId, badge_id: badgeId, granted_by: viewerId });
+    if (error) {
+      if (error.code === '23505') {
+        Alert.alert('Ya la tiene', 'Este usuario ya tiene esta insignia.');
+      } else {
+        Alert.alert('Error', error.message || 'No se pudo regalar la insignia.');
+      }
+    } else {
+      setShowGiftModal(false);
+      loadFromSupabase();
+      Alert.alert('¡Regalada!', 'Insignia entregada correctamente.');
+    }
+    setGiftingBadge(false);
+  };
+
+  // ── Remover insignia ───────────────────────────────────────────────────
+  const removeUserBadge = async (userBadgeId: string, badgeName: string) => {
+    const { error } = await supabase
+      .from('user_badges')
+      .delete()
+      .eq('id', userBadgeId);
+    if (error) {
+      Alert.alert('Error', 'No se pudo remover la insignia.');
+    } else {
+      setShowBadgeInfo(false);
+      loadFromSupabase();
+      Alert.alert('Removida', `Insignia "${badgeName}" removida.`);
+    }
+  };
 
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
 
@@ -397,15 +672,24 @@ export default function PublicProfile() {
 
             <View style={{ flex: 1 }}>
               <Text style={s.name}>{displayName}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                {isAdmin && (
-                  <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'admin' })} hitSlop={8}>
-                    <MaterialIcons name="verified" size={24} color="#FFD700" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                {userBadges.map((badge) => (
+                  <TouchableOpacity
+                    key={badge.id}
+                    onPress={() => { setSelectedUserBadge(badge); setShowBadgeInfo(true); }}
+                    hitSlop={8}
+                  >
+                    <BadgeIcon iconKey={badge.icon || 'verified_MI_0'} size={24} color={badge.color} />
                   </TouchableOpacity>
-                )}
-                {isEarlyUser && (
-                  <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'early' })} hitSlop={8}>
-                    <MaterialIcons name="verified" size={24} color="#06B6D4" />
+                ))}
+                {/* Admin visitante ve botón de regalar cuando visita otro perfil */}
+                {viewerId && profileId !== viewerId && isViewerAdmin && (
+                  <TouchableOpacity
+                    onPress={() => setShowGiftModal(true)}
+                    style={{ marginLeft: 4 }}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="add-circle" size={24} color="#4ADE80" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -472,34 +756,73 @@ export default function PublicProfile() {
           />
         </View>
 
-        {/* Modal badges */}
-        <Modal visible={badgeModal.visible} transparent animationType="fade">
+        {/* Modal info de insignia */}
+        <Modal visible={showBadgeInfo} transparent animationType="fade" onRequestClose={() => setShowBadgeInfo(false)}>
           <View style={s.badgeOverlay}>
-            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setBadgeModal({ visible: false, type: null })} />
+            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setShowBadgeInfo(false)} />
             <View style={s.badgeContent}>
-              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setBadgeModal({ visible: false, type: null })}>
+              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setShowBadgeInfo(false)}>
                 <Ionicons name="close-circle" size={28} color="#F3F4F6" />
               </TouchableOpacity>
-              {badgeModal.type === 'admin' && (
+              {selectedUserBadge && (
                 <View style={s.badgeInfo}>
-                  <MaterialIcons name="verified" size={56} color="#FFD700" />
-                  <Text style={s.badgeTitle}>Administrador</Text>
-                  <Text style={s.badgeDesc}>
-                    Esta insignia indica que eres administrador de la aplicación U-PAZ. Tienes permisos especiales para moderar y gestionar contenido.
-                  </Text>
-                </View>
-              )}
-              {badgeModal.type === 'early' && (
-                <View style={s.badgeInfo}>
-                  <MaterialIcons name="verified" size={56} color="#06B6D4" />
-                  <Text style={s.badgeTitle}>Usuario Temprano</Text>
-                  <Text style={s.badgeDesc}>
-                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025.
-                  </Text>
+                  <BadgeIcon iconKey={selectedUserBadge.icon || 'verified_MI_0'} size={56} color={selectedUserBadge.color} />
+                  <Text style={s.badgeTitle}>{selectedUserBadge.name}</Text>
+                  <Text style={s.badgeDesc}>{selectedUserBadge.description}</Text>
+                  {/* Admin visitante puede remover la insignia */}
+                  {viewerId && isViewerAdmin && (selectedUserBadge as any).userBadgeId && (
+                    <TouchableOpacity
+                      style={s.removeBadgeBtn}
+                      onPress={() => removeUserBadge((selectedUserBadge as any).userBadgeId, selectedUserBadge.name)}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#F87171" />
+                      <Text style={s.removeBadgeBtnText}>Remover insignia</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </View>
           </View>
+        </Modal>
+
+        {/* Modal regalar insignia */}
+        <Modal visible={showGiftModal} transparent animationType="slide" onRequestClose={() => setShowGiftModal(false)}>
+          <SafeAreaView style={s.giftModalScreen}>
+            <View style={[s.header, { paddingTop: insets.top, height: 56 + insets.top }]}>
+              <TouchableOpacity onPress={() => setShowGiftModal(false)} style={s.backButton} hitSlop={10}>
+                <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
+              </TouchableOpacity>
+              <Text style={s.headerTitle}>Regalar Insignia</Text>
+              <View style={{ width: 32 }} />
+            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 30 }}>
+              {allBadges.filter(b => b.scope === 'custom').map((badge) => {
+                const alreadyHas = userBadgeIds.includes(badge.id);
+                return (
+                  <TouchableOpacity
+                    key={badge.id}
+                    style={[s.giftBadgeRow, alreadyHas && s.giftBadgeRowDisabled]}
+                    onPress={() => { if (!alreadyHas) giftBadge(badge.id); }}
+                    disabled={alreadyHas || giftingBadge}
+                    activeOpacity={0.7}
+                  >
+                    <BadgeIcon iconKey={badge.icon || 'verified_MI_0'} size={24} color={badge.color} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.giftBadgeName}>{badge.name}</Text>
+                      <Text style={s.giftBadgeDesc} numberOfLines={1}>{badge.description}</Text>
+                    </View>
+                    {alreadyHas ? (
+                      <Ionicons name="checkmark-circle" size={22} color="#4ADE80" />
+                    ) : giftingBadge ? (
+                      <ActivityIndicator size="small" color="#F3F4F6" />
+                    ) : (
+                      <Ionicons name="gift-outline" size={22} color="#4ADE80" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </SafeAreaView>
         </Modal>
 
         <ImageZoomModal
@@ -606,12 +929,64 @@ function PublicStoryCard({
         `)
         .eq('story_id', item.id);
       if (error) throw error;
+
+      const userIds = (likes ?? []).map((l: any) => l.user_id);
+      const profileMap = new Map((likes ?? []).map((l: any) => [l.profiles?.id, l.profiles]));
+      const badgesMap = new Map<string, any[]>();
+
+      // Cargar insignias asignadas
+      const { data: assignedBadges } = await supabase
+        .from('user_badges')
+        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+        .in('user_id', userIds)
+        .order('granted_at', { ascending: true });
+      if (assignedBadges) {
+        assignedBadges.forEach((row: any) => {
+          const uid = row.user_id;
+          const badge = row.badges;
+          if (badge) {
+            const existing = badgesMap.get(uid) || [];
+            existing.push({ ...badge, _assigned_at: row.granted_at });
+            badgesMap.set(uid, existing);
+          }
+        });
+      }
+
+      // Cargar badges de scope
+      const { data: scopeBadges } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+      (scopeBadges || []).forEach((badge: any) => {
+        if (badge.scope === 'all_users') {
+          userIds.forEach((uid) => {
+            const existing = badgesMap.get(uid) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          });
+        } else if (badge.scope === 'admin_only') {
+          userIds.forEach((uid) => {
+            const profile = profileMap.get(uid);
+            if (profile?.is_admin) {
+              const existing = badgesMap.get(uid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(uid, existing);
+              }
+            }
+          });
+        }
+      });
+
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
         id: like.profiles.id,
         display_name: like.profiles.display_name,
         avatar_url: like.profiles.avatar_url,
         is_admin: like.profiles.is_admin,
         created_at: like.profiles.created_at,
+        userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
     } catch (e: any) {
@@ -654,7 +1029,14 @@ function PublicStoryCard({
                 <Ionicons name="person-outline" size={12} color="#9CA3AF" />
               </View>
             )}
-            <Text style={s.authorTxt}>{authorForCard}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={s.authorTxt}>{authorForCard}</Text>
+              {profile0?.user_badges?.map((badge: any, idx: number) => (
+                <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={12} color={badge.color || '#F3F4F6'} />
+              ))}
+            </View>
+            <View style={{ flex: 1 }} />
+            {item.category && <CategoryBadge category={item.category} />}
           </View>
 
           <Text style={s.cardTitle}>{item.title}</Text>
@@ -746,8 +1128,9 @@ function PublicStoryCard({
                         )}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                           <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                          {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
-                          {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                          {user.userBadges?.map((badge, idx) => (
+                            <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+                          ))}
                         </View>
                         <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
                       </TouchableOpacity>
@@ -836,7 +1219,7 @@ const s = StyleSheet.create({
     width: 26, height: 26, borderRadius: 13,
     backgroundColor: '#0F1016', borderWidth: 1, borderColor: '#1F1F27',
   },
-  authorTxt: { color: '#E5E7EB', fontWeight: '600', flex: 1 },
+  authorTxt: { color: '#E5E7EB', fontWeight: '600' },
   cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
   cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
   excerpt: { color: '#D1D5DB' },
@@ -867,6 +1250,26 @@ const s = StyleSheet.create({
   },
   likeUserAvatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#2C2C33' },
   likeUserName: { color: '#F3F4F6', fontWeight: '600' },
+
+  // Gift modal styles
+  giftModalScreen: { flex: 1, backgroundColor: '#000' },
+  giftBadgeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#0A0A0A', borderRadius: 12, borderWidth: 1,
+    borderColor: '#1F1F27', paddingHorizontal: 14, paddingVertical: 12,
+  },
+  giftBadgeRowDisabled: { opacity: 0.5, borderColor: '#166534', backgroundColor: '#052e16' },
+  giftBadgeName: { color: '#F3F4F6', fontSize: 15, fontWeight: '700' },
+  giftBadgeDesc: { color: '#9CA3AF', fontSize: 12, marginTop: 2 },
+
+  // Remove badge button
+  removeBadgeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, backgroundColor: '#2D1515', borderWidth: 1, borderColor: '#5F1515',
+    borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16, marginTop: 12,
+    width: '100%',
+  },
+  removeBadgeBtnText: { color: '#F87171', fontSize: 14, fontWeight: '700' },
 });
 
 // ─── Skeleton styles ──────────────────────────────────────────────────────────

@@ -15,9 +15,11 @@ import { Link, useFocusEffect, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
-import ShareStorySheet from '../../components/ShareStorySheet'; // ← NUEVO
+import ShareStorySheet from '../../components/ShareStorySheet';
+import { BadgeIcon } from '../profile/settings';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -26,6 +28,10 @@ import Animated, {
   cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
+
+// ── Tipos ─────────────────────────────────────────────────────────────────────
+
+type StoryCategory = 'mito' | 'leyenda' | 'urbana' | 'otra';  // ← NUEVO
 
 type DBStory = {
   id: string;
@@ -36,11 +42,21 @@ type DBStory = {
   comments_count: number;
   created_at: string;
   author_id: string;
+  category: StoryCategory | null;
   profiles: {
     avatar_url: string | null;
     is_admin: boolean;
     created_at: string;
     display_name: string | null;
+    user_badges?: {
+      badges: {
+        id: string;
+        name: string;
+        description: string;
+        color: string;
+        icon: string | null;
+      };
+    }[];
   }[] | null;
 };
 
@@ -50,6 +66,7 @@ type LikeUser = {
   avatar_url: string | null;
   is_admin: boolean;
   created_at: string;
+  userBadges?: any[];
 };
 
 const C = {
@@ -64,9 +81,52 @@ const C = {
   like: '#ef4444',
 };
 
+// ── Config de categorías para el badge ───────────────────────────────────────
+
+const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: string }> = {
+  mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#A78BFA' },
+  leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#6EE7B7' },
+  urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#94A3B8' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#FCD34D' },
+};
+
+// Badge inline — solo ícono + label, sin colores de fondo llamativos
+function CategoryBadge({ category }: { category: StoryCategory }) {
+  const cfg = CAT_CONFIG[category];
+  if (!cfg) return null;
+  return (
+    <View style={b.badge}>
+      <MaterialCommunityIcons name={cfg.icon as any} size={12} color={cfg.color} />
+      <Text style={[b.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+const b = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: '#242424',
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
+// ─── Skeleton (sin cambios) ───────────────────────────────────────────────────
 function SkeletonBox({
   width, height, borderRadius = 8, style,
 }: {
@@ -143,10 +203,7 @@ export default function Feed() {
 
   useEffect(() => {
     if (!loading) {
-      contentOpacity.value = withTiming(1, {
-        duration: 360,
-        easing: Easing.out(Easing.ease),
-      });
+      contentOpacity.value = withTiming(1, { duration: 360, easing: Easing.out(Easing.ease) });
     }
   }, [loading]);
 
@@ -168,7 +225,7 @@ export default function Feed() {
       .from('stories')
       .select(`
         id, title, body, cover_url, likes_count, comments_count,
-        created_at, author_id,
+        created_at, author_id, category,
         profiles!stories_author_id_fkey ( avatar_url, is_admin, created_at, display_name )
       `)
       .order('created_at', { ascending: false })
@@ -187,32 +244,92 @@ export default function Feed() {
     const authorIds = Array.from(new Set(rawStories.map((s) => s.author_id)));
     const avatarMap = new Map<string, string | null>();
     const displayNameMap = new Map<string, string | null>();
+    const badgesMap = new Map<string, any[]>();
 
+    // Cargar perfiles de autores
     if (authorIds.length) {
       const { data: profRows } = await supabase
-        .from('profiles').select('id, avatar_url, display_name').in('id', authorIds);
+        .from('profiles').select('id, avatar_url, display_name, is_admin').in('id', authorIds);
       (profRows ?? []).forEach((p: any) => {
         avatarMap.set(p.id, p.avatar_url ?? null);
         displayNameMap.set(p.id, p.display_name ?? null);
       });
+
+      // Cargar TODAS las insignias asignadas desde user_badges
+      const { data: assignedBadges, error: badgeErr } = await supabase
+        .from('user_badges')
+        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+        .in('user_id', authorIds)
+        .order('granted_at', { ascending: true });
+
+      if (!badgeErr && assignedBadges) {
+        assignedBadges.forEach((row: any) => {
+          const uid = row.user_id;
+          const badge = row.badges;
+          if (badge) {
+            const existing = badgesMap.get(uid) || [];
+            existing.push({ ...badge, _assigned_at: row.granted_at });
+            badgesMap.set(uid, existing);
+          }
+        });
+      }
+
+      // Cargar badges de scope (all_users, admin_only) que NO están en user_badges
+      const { data: scopeBadges } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+
+      (scopeBadges || []).forEach((badge: any) => {
+        if (badge.scope === 'all_users') {
+          authorIds.forEach((aid) => {
+            const existing = badgesMap.get(aid) || [];
+            const yaExiste = existing.some((b: any) => b.id === badge.id);
+            if (!yaExiste) {
+              existing.push(badge);
+              badgesMap.set(aid, existing);
+            }
+          });
+        } else if (badge.scope === 'admin_only') {
+          authorIds.forEach((aid) => {
+            const isAuthorAdmin = profRows?.find((p: any) => p.id === aid)?.is_admin;
+            if (isAuthorAdmin) {
+              const existing = badgesMap.get(aid) || [];
+              const yaExiste = existing.some((b: any) => b.id === badge.id);
+              if (!yaExiste) {
+                existing.push(badge);
+                badgesMap.set(aid, existing);
+              }
+            }
+          });
+        }
+      });
     }
 
+    // Normalizar historias con insignias
     const normalized: DBStory[] = rawStories.map((st) => {
       const profileArr = toArray(st.profiles);
       const profile0 = profileArr[0] ?? null;
+      const authorId = st.author_id;
+      const authorIsAdmin = profile0?.is_admin ?? false;
       const avatar =
         profile0?.avatar_url ??
-        (uid && st.author_id === uid ? userAvatar : null) ??
-        avatarMap.get(st.author_id) ?? null;
+        (uid && authorId === uid ? userAvatar : null) ??
+        avatarMap.get(authorId) ?? null;
       const display_name =
-        profile0?.display_name ?? displayNameMap.get(st.author_id) ?? null;
+        profile0?.display_name ?? displayNameMap.get(authorId) ?? null;
+
+      // Obtener TODAS las insignias de ESTE autor desde el mapa
+      const authorBadges = badgesMap.get(authorId) || [];
+
       return {
         ...st,
         profiles: [{
           avatar_url: avatar,
-          is_admin: profile0?.is_admin ?? false,
+          is_admin: authorIsAdmin,
           created_at: profile0?.created_at ?? '',
           display_name,
+          user_badges: authorBadges,
         }],
       };
     });
@@ -240,9 +357,7 @@ export default function Feed() {
     if (!isLoadedRef.current) loadFeed();
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {}, [])
-  );
+  useFocusEffect(useCallback(() => {}, []));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -274,17 +389,13 @@ export default function Feed() {
             contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
             ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
             refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={C.textPrimary}
-              />
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textPrimary} />
             }
             renderItem={({ item }) => (
               <StoryCard
                 item={item}
                 liked={likedSet.has(item.id)}
-                userId={userId} // ← NUEVO: pasamos userId
+                userId={userId}
                 onToggleLike={async (id) => {
                   const { data: userData } = await supabase.auth.getUser();
                   const uid = userData.user?.id;
@@ -329,7 +440,7 @@ function StoryCard({
 }: {
   item: DBStory;
   liked: boolean;
-  userId: string | null; // ← NUEVO
+  userId: string | null;
   onToggleLike: (id: string) => void;
 }) {
   const router = useRouter();
@@ -339,7 +450,7 @@ function StoryCard({
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
-  const [showShare, setShowShare] = useState(false); // ← NUEVO
+  const [showShare, setShowShare] = useState(false);
 
   const hasCover = !!item.cover_url;
   const profileArr = toArray(item.profiles);
@@ -375,12 +486,64 @@ function StoryCard({
         .select(`user_id, profiles!story_likes_user_id_fkey ( id, display_name, avatar_url, is_admin, created_at )`)
         .eq('story_id', item.id);
       if (error) throw error;
-      const users: LikeUser[] = (likes ?? []).map((likeRow: any) => ({
-        id: likeRow.profiles.id,
-        display_name: likeRow.profiles.display_name,
-        avatar_url: likeRow.profiles.avatar_url,
-        is_admin: likeRow.profiles.is_admin,
-        created_at: likeRow.profiles.created_at,
+
+      const userIds = (likes ?? []).map((l: any) => l.user_id);
+      const profileMap = new Map((likes ?? []).map((l: any) => [l.profiles?.id, l.profiles]));
+      const badgesMap = new Map<string, any[]>();
+
+      // Cargar insignias asignadas
+      const { data: assignedBadges } = await supabase
+        .from('user_badges')
+        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+        .in('user_id', userIds)
+        .order('granted_at', { ascending: true });
+      if (assignedBadges) {
+        assignedBadges.forEach((row: any) => {
+          const uid = row.user_id;
+          const badge = row.badges;
+          if (badge) {
+            const existing = badgesMap.get(uid) || [];
+            existing.push({ ...badge, _assigned_at: row.granted_at });
+            badgesMap.set(uid, existing);
+          }
+        });
+      }
+
+      // Cargar badges de scope
+      const { data: scopeBadges } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+      (scopeBadges || []).forEach((badge: any) => {
+        if (badge.scope === 'all_users') {
+          userIds.forEach((uid) => {
+            const existing = badgesMap.get(uid) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          });
+        } else if (badge.scope === 'admin_only') {
+          userIds.forEach((uid) => {
+            const profile = profileMap.get(uid);
+            if (profile?.is_admin) {
+              const existing = badgesMap.get(uid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(uid, existing);
+              }
+            }
+          });
+        }
+      });
+
+      const users: LikeUser[] = (likes ?? []).map((like: any) => ({
+        id: like.profiles.id,
+        display_name: like.profiles.display_name,
+        avatar_url: like.profiles.avatar_url,
+        is_admin: like.profiles.is_admin,
+        created_at: like.profiles.created_at,
+        userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
     } catch (e: any) {
@@ -396,6 +559,7 @@ function StoryCard({
   return (
     <>
       <View style={s.card}>
+        {/* Header: avatar + autor + badge categoría */}
         <Link href={{ pathname: '/profile/[id]', params: { id: item.author_id } }} asChild>
           <TouchableOpacity activeOpacity={0.85} style={s.headerRow} disabled={opening}>
             {avatar ? (
@@ -408,11 +572,20 @@ function StoryCard({
                 <Ionicons name="person-outline" size={14} color={C.textSecondary} />
               </View>
             )}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
               <Text style={s.author}>{author}</Text>
-              {isAdmin && <MaterialIcons name="verified" size={16} color="#FFD700" />}
-              {isEarlyUser && <MaterialIcons name="verified" size={16} color="#06B6D4" />}
+              {/* Insignias dinámicas del usuario */}
+              {profileArr[0]?.user_badges?.map((badge: any, idx: number) => (
+                <BadgeIcon
+                  key={idx}
+                  iconKey={badge.icon || 'verified_MI_0'}
+                  size={16}
+                  color={badge.color || '#F3F4F6'}
+                />
+              ))}
             </View>
+            {/* ── BADGE CATEGORÍA ── */}
+            {item.category && <CategoryBadge category={item.category} />}
           </TouchableOpacity>
         </Link>
 
@@ -445,9 +618,8 @@ function StoryCard({
             </Text>
           </View>
 
-          {/* ── Footer: likes + comentarios + compartir ─────────────────── */}
+          {/* Footer */}
           <View style={s.footerRow}>
-            {/* Like */}
             <TouchableOpacity style={s.meta} onPress={handleLikePress} activeOpacity={0.8} disabled={isLiking}>
               <Ionicons
                 name={liked ? 'heart' : 'heart-outline'} size={20}
@@ -464,7 +636,6 @@ function StoryCard({
               </Text>
             </TouchableOpacity>
 
-            {/* Comentarios */}
             <View style={[s.meta, { marginLeft: 16 }]}>
               <Ionicons name="chatbox-outline" size={20} color={C.textSecondary} />
             </View>
@@ -474,7 +645,6 @@ function StoryCard({
               </Text>
             </View>
 
-            {/* ← NUEVO: Compartir */}
             <TouchableOpacity
               style={[s.meta, { marginLeft: 'auto' }]}
               onPress={() => setShowShare(true)}
@@ -487,7 +657,7 @@ function StoryCard({
         </TouchableOpacity>
       </View>
 
-      {/* ── Modal likes ─────────────────────────────────────────────────── */}
+      {/* Modal likes */}
       <Modal visible={showLikesModal} transparent animationType="fade">
         <View style={s.likesOverlay}>
           <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
@@ -528,8 +698,9 @@ function StoryCard({
                         )}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                           <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                          {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
-                          {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                          {user.userBadges?.map((badge, idx) => (
+                            <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+                          ))}
                         </View>
                         <Ionicons name="chevron-forward" size={20} color={C.textSecondary} style={{ marginLeft: 'auto' }} />
                       </TouchableOpacity>
@@ -542,7 +713,6 @@ function StoryCard({
         </View>
       </Modal>
 
-      {/* ← NUEVO: ShareStorySheet */}
       {userId && (
         <ShareStorySheet
           visible={showShare}
@@ -561,6 +731,7 @@ function StoryCard({
   );
 }
 
+// ─── Estilos (sin cambios) ────────────────────────────────────────────────────
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   card: {

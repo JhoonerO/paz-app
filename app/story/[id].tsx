@@ -17,6 +17,7 @@ import {
 import { useLocalSearchParams, useRouter, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -24,6 +25,7 @@ import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import ShareStorySheet from '../../components/ShareStorySheet';
+import { BadgeIcon } from '../profile/settings';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -43,6 +45,8 @@ import Animated, {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+type StoryCategory = 'mito' | 'leyenda' | 'urbana' | 'otra';
+
 type Params = {
   id: string;
   source?: 'home' | 'profile' | 'notifications' | 'chat' | 'public-profile';
@@ -57,6 +61,13 @@ type Comment = {
   createdAt: number;
   is_admin: boolean;
   created_at: string;
+  userBadges?: {
+    id: string;
+    name: string;
+    color: string;
+    icon: string | null;
+    scope?: string;
+  }[];
 };
 
 type LikeUser = {
@@ -65,7 +76,54 @@ type LikeUser = {
   avatar_url: string | null;
   is_admin: boolean;
   created_at: string;
+  userBadges?: {
+    id: string;
+    name: string;
+    color: string;
+    icon: string | null;
+    scope?: string;
+  }[];
 };
+
+// ─── Config de categorías para el badge ───────────────────────────────────────
+
+const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: string }> = {
+  mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
+  leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
+  urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+};
+
+function CategoryBadge({ category }: { category: StoryCategory }) {
+  const cfg = CAT_CONFIG[category];
+  if (!cfg) return null;
+  return (
+    <View style={catStyles.badge}>
+      <MaterialCommunityIcons name={cfg.icon as any} size={12} color={cfg.color} />
+      <Text style={[catStyles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+const catStyles = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: '#242424',
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+});
 
 // ─── Orb pulsante ─────────────────────────────────────────────────────────────
 function LoadingOrb() {
@@ -169,6 +227,7 @@ export default function StoryDetail() {
   const [storyTitle, setStoryTitle] = useState<string>('');
   const [storyBody, setStoryBody] = useState<string>('');
   const [storyCover, setStoryCover] = useState<string | undefined>(undefined);
+  const [storyCategory, setStoryCategory] = useState<StoryCategory | null>(null);
   const [authorName, setAuthorName] = useState<string>('');
   const [authorAvatar, setAuthorAvatar] = useState<string | null>(null); // ← NUEVO
 
@@ -285,6 +344,7 @@ export default function StoryDetail() {
             likes_count,
             comments_count,
             author_id,
+            category,
             profiles!stories_author_id_fkey ( display_name, avatar_url )
           `)
           .eq('id', storyId)
@@ -298,6 +358,7 @@ export default function StoryDetail() {
           setStoryTitle(data.title || 'Historia');
           setStoryBody(data.body || 'Sin contenido.');
           setStoryCover(data.cover_url || undefined);
+          setStoryCategory(data.category || null);
           setAuthorName(profile?.display_name?.trim() || '');
           setAuthorAvatar(profile?.avatar_url ?? null); // ← NUEVO
           setLikeCount(data.likes_count || 0);
@@ -345,10 +406,61 @@ export default function StoryDetail() {
       .select('id, display_name, avatar_url, is_admin, created_at')
       .in('id', userIds);
 
-    const map = new Map(profiles?.map((p) => [p.id, p]) ?? []);
+    const profileMap = new Map(profiles?.map((p) => [p.id, p]) ?? []);
+    const badgesMap = new Map<string, any[]>();
+
+    // Cargar insignias asignadas (custom)
+    const { data: assignedBadges } = await supabase
+      .from('user_badges')
+      .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+      .in('user_id', userIds)
+      .order('granted_at', { ascending: true });
+
+    if (assignedBadges) {
+      assignedBadges.forEach((row: any) => {
+        const uid = row.user_id;
+        const badge = row.badges;
+        if (badge) {
+          const existing = badgesMap.get(uid) || [];
+          existing.push({ ...badge, _assigned_at: row.granted_at });
+          badgesMap.set(uid, existing);
+        }
+      });
+    }
+
+    // Cargar badges de scope (all_users, admin_only)
+    const { data: scopeBadges } = await supabase
+      .from('badges')
+      .select('id, name, description, color, icon, scope')
+      .order('name', { ascending: true });
+
+    (scopeBadges || []).forEach((badge: any) => {
+      if (badge.scope === 'all_users') {
+        userIds.forEach((uid) => {
+          const existing = badgesMap.get(uid) || [];
+          const yaExiste = existing.some((b: any) => b.id === badge.id);
+          if (!yaExiste) {
+            existing.push(badge);
+            badgesMap.set(uid, existing);
+          }
+        });
+      } else if (badge.scope === 'admin_only') {
+        userIds.forEach((uid) => {
+          const profile = profileMap.get(uid);
+          if (profile?.is_admin) {
+            const existing = badgesMap.get(uid) || [];
+            const yaExiste = existing.some((b: any) => b.id === badge.id);
+            if (!yaExiste) {
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          }
+        });
+      }
+    });
 
     const comments = rows.map((c: any) => {
-      const profile = map.get(c.user_id);
+      const profile = profileMap.get(c.user_id);
       return {
         id: c.id,
         userId: c.user_id,
@@ -358,6 +470,7 @@ export default function StoryDetail() {
         createdAt: new Date(c.created_at).getTime(),
         is_admin: profile?.is_admin ?? false,
         created_at: profile?.created_at ?? '',
+        userBadges: badgesMap.get(c.user_id) || [],
       };
     });
 
@@ -384,12 +497,65 @@ export default function StoryDetail() {
 
       if (error) throw error;
 
+      const userIds = (likes ?? []).map((l: any) => l.user_id);
+      const profileMap = new Map((likes ?? []).map((l: any) => [l.profiles?.id, l.profiles]));
+      const badgesMap = new Map<string, any[]>();
+
+      // Cargar insignias asignadas (custom)
+      const { data: assignedBadges } = await supabase
+        .from('user_badges')
+        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+        .in('user_id', userIds)
+        .order('granted_at', { ascending: true });
+
+      if (assignedBadges) {
+        assignedBadges.forEach((row: any) => {
+          const uid = row.user_id;
+          const badge = row.badges;
+          if (badge) {
+            const existing = badgesMap.get(uid) || [];
+            existing.push({ ...badge, _assigned_at: row.granted_at });
+            badgesMap.set(uid, existing);
+          }
+        });
+      }
+
+      // Cargar badges de scope
+      const { data: scopeBadges } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+
+      (scopeBadges || []).forEach((badge: any) => {
+        if (badge.scope === 'all_users') {
+          userIds.forEach((uid) => {
+            const existing = badgesMap.get(uid) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          });
+        } else if (badge.scope === 'admin_only') {
+          userIds.forEach((uid) => {
+            const profile = profileMap.get(uid);
+            if (profile?.is_admin) {
+              const existing = badgesMap.get(uid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(uid, existing);
+              }
+            }
+          });
+        }
+      });
+
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
-        id: like.profiles.id,
-        display_name: like.profiles.display_name,
-        avatar_url: like.profiles.avatar_url,
-        is_admin: like.profiles.is_admin,
-        created_at: like.profiles.created_at,
+        id: like.profiles?.id,
+        display_name: like.profiles?.display_name,
+        avatar_url: like.profiles?.avatar_url,
+        is_admin: like.profiles?.is_admin,
+        created_at: like.profiles?.created_at,
+        userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
     } catch (e: any) {
@@ -557,7 +723,13 @@ export default function StoryDetail() {
 
                 {authorName ? (
                   <View style={s.authorRow}>
-                    <Text style={s.author}>— {authorName}</Text>
+                    <Text style={s.author}>— </Text>
+                    <Link href={{ pathname: '/profile/[id]', params: { id: storyAuthorId || '' } }} asChild>
+                      <TouchableOpacity activeOpacity={0.7}>
+                        <Text style={[s.author, s.authorLink]}>{authorName}</Text>
+                      </TouchableOpacity>
+                    </Link>
+                    {storyCategory && <CategoryBadge category={storyCategory} />}
                   </View>
                 ) : null}
 
@@ -625,12 +797,14 @@ export default function StoryDetail() {
                               <TouchableOpacity>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                   <Text style={s.commentAuthor}>{c.author}</Text>
-                                  {c.is_admin && (
-                                    <MaterialIcons name="verified" size={12} color="#FFD700" />
-                                  )}
-                                  {isEarlyUser && (
-                                    <MaterialIcons name="verified" size={12} color="#06B6D4" />
-                                  )}
+                                  {c.userBadges?.map((badge, idx) => (
+                                    <BadgeIcon
+                                      key={idx}
+                                      iconKey={badge.icon || 'verified_MI_0'}
+                                      size={12}
+                                      color={badge.color || '#F3F4F6'}
+                                    />
+                                  ))}
                                 </View>
                               </TouchableOpacity>
                             </Link>
@@ -781,8 +955,14 @@ export default function StoryDetail() {
                           )}
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                             <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                            {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
-                            {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                            {user.userBadges?.map((badge, idx) => (
+                              <BadgeIcon
+                                key={idx}
+                                iconKey={badge.icon || 'verified_MI_0'}
+                                size={14}
+                                color={badge.color || '#F3F4F6'}
+                              />
+                            ))}
                           </View>
                           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
                         </TouchableOpacity>
@@ -939,6 +1119,11 @@ const s = StyleSheet.create({
   bodyText: { color: '#E5E7EB', lineHeight: 22, fontSize: 15 },
   authorRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   author: { color: '#C9C9D1', fontStyle: 'italic' },
+  authorLink: {
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
+    textDecorationColor: '#6B7280',
+  },
   footerRow: {
     marginTop: 8,
     flexDirection: 'row',

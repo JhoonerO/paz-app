@@ -15,6 +15,8 @@ export type StoryShareData = {
   cover_url: string | null;
   author: string;
   author_avatar: string | null;
+  author_badges?: any[];
+  author_is_admin?: boolean;
 };
 
 type ConvItem = {
@@ -40,6 +42,8 @@ export default function ShareStorySheet({ visible, onClose, story, currentUserId
   const [sending, setSending] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [showAll, setShowAll] = useState(false);
+  const [authorBadges, setAuthorBadges] = useState<any[]>([]);
+  const [authorIsAdmin, setAuthorIsAdmin] = useState(false);
 
   const loadConversations = useCallback(async () => {
     setLoading(true);
@@ -88,8 +92,69 @@ export default function ShareStorySheet({ visible, onClose, story, currentUserId
       loadConversations();
       setSentIds(new Set());
       setShowAll(false);
+      // Cargar insignias del autor
+      loadAuthorBadges();
     }
   }, [visible, loadConversations]);
+
+  const loadAuthorBadges = async () => {
+    try {
+      const { data: storyData } = await supabase
+        .from('stories')
+        .select('author_id')
+        .eq('id', story.id)
+        .maybeSingle();
+      if (storyData?.author_id) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', storyData.author_id)
+          .maybeSingle();
+        const isAdmin = profile?.is_admin ?? false;
+        setAuthorIsAdmin(isAdmin);
+
+        const badgesMap = new Map<string, any[]>();
+        const { data: assignedBadges } = await supabase
+          .from('user_badges')
+          .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+          .eq('user_id', storyData.author_id)
+          .order('granted_at', { ascending: true });
+        if (assignedBadges) {
+          assignedBadges.forEach((row: any) => {
+            const uid = row.user_id;
+            const badge = row.badges;
+            if (badge) {
+              const existing = badgesMap.get(uid) || [];
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          });
+        }
+        const { data: scopeBadges } = await supabase
+          .from('badges')
+          .select('id, name, description, color, icon, scope')
+          .order('name', { ascending: true });
+        (scopeBadges || []).forEach((badge: any) => {
+          if (badge.scope === 'all_users') {
+            const existing = badgesMap.get(storyData.author_id) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(storyData.author_id, existing);
+            }
+          } else if (badge.scope === 'admin_only') {
+            if (isAdmin) {
+              const existing = badgesMap.get(storyData.author_id) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(storyData.author_id, existing);
+              }
+            }
+          }
+        });
+        setAuthorBadges(badgesMap.get(storyData.author_id) || []);
+      }
+    } catch {}
+  };
 
   const sendToConversation = async (conv: ConvItem) => {
     if (sending || sentIds.has(conv.id)) return;
@@ -106,6 +171,8 @@ export default function ShareStorySheet({ visible, onClose, story, currentUserId
         cover_url: story.cover_url,
         author: story.author,
         author_avatar: story.author_avatar,
+        author_badges: authorBadges,
+        author_is_admin: authorIsAdmin,
       },
     });
 
@@ -155,8 +222,6 @@ const handleExternalShare = async () => {
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Text style={sh.convName} numberOfLines={1}>{conv.otherName}</Text>
-            {conv.isAdmin && <MaterialIcons name="verified" size={13} color="#FFD700" />}
-            {conv.isEarly && <MaterialIcons name="verified" size={13} color="#06B6D4" />}
           </View>
         </View>
         <TouchableOpacity

@@ -19,6 +19,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Link, useNavigation, useRouter, useFocusEffect } from 'expo-router';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
+import { BadgeIcon } from '../profile/settings';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
@@ -47,6 +48,8 @@ const DEFAULT_AVATARS = [
   { id: 'tigre', name: 'Jaguar', source: require('../../imagenes_de_Perfil/tigre.jpg'), publicPath: 'tigre.jpg' },
 ];
 
+type StoryCategory = 'mito' | 'leyenda' | 'urbana' | 'otra';
+
 type DBStory = {
   id: string;
   title: string;
@@ -56,6 +59,7 @@ type DBStory = {
   comments_count: number;
   created_at: string;
   author_id: string;
+  category: StoryCategory | null;
   profiles: {
     display_name: string | null;
     avatar_url: string | null;
@@ -77,6 +81,7 @@ type LikeUser = {
   avatar_url: string | null;
   is_admin: boolean;
   created_at: string;
+  userBadges?: any[];
 };
 
 function getExtAndType(uri: string) {
@@ -95,6 +100,55 @@ async function uriToArrayBuffer(uri: string) {
 }
 
 const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
+
+type ProfileBadge = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  icon: string | null;
+  scope?: 'admin_only' | 'all_users' | 'custom';
+};
+
+// ── Config de categorías para el badge ───────────────────────────────────────
+
+const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: string }> = {
+  mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
+  leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
+  urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+};
+
+function CategoryBadge({ category }: { category: StoryCategory }) {
+  const cfg = CAT_CONFIG[category];
+  if (!cfg) return null;
+  return (
+    <View style={catStyles.badge}>
+      <MaterialCommunityIcons name={cfg.icon as any} size={12} color={cfg.color} />
+      <Text style={[catStyles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+const catStyles = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 1,
+    borderColor: '#242424',
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+});
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function usePulse() {
@@ -189,10 +243,9 @@ export default function Profile() {
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  const [badgeModal, setBadgeModal] = useState<{ visible: boolean; type: 'admin' | 'early' | null }>({
-    visible: false,
-    type: null,
-  });
+  const [userBadges, setUserBadges] = useState<ProfileBadge[]>([]);
+  const [selectedUserBadge, setSelectedUserBadge] = useState<ProfileBadge | null>(null);
+  const [showBadgeInfo, setShowBadgeInfo] = useState(false);
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -302,11 +355,45 @@ export default function Profile() {
       setIsAdmin(prof?.is_admin ?? false);
       setCreatedAt(prof?.created_at ?? '');
 
+      // Cargar insignias según scope
+      const { data: badgeRows, error: badgeErr } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+
+      const userIsAdmin = prof?.is_admin ?? false;
+      const allBadgesList = (badgeRows || []) as ProfileBadge[];
+
+      // Auto-asignadas por scope
+      const scopeBadges = allBadgesList.filter(b => {
+        if (b.scope === 'admin_only') return userIsAdmin;
+        if (b.scope === 'all_users') return true;
+        return false;
+      });
+
+      // Custom asignadas a este usuario
+      try {
+        const { data: customAssigned, error: customErr } = await supabase
+          .from('user_badges')
+          .select(`badges ( id, name, description, color, icon, scope )`)
+          .eq('user_id', uid);
+        if (!customErr && customAssigned) {
+          const customBadges = customAssigned
+            .map((r: any) => ({ ...r.badges, userBadgeId: r.id }))
+            .filter((b: any) => b.scope === 'custom');
+          setUserBadges([...scopeBadges, ...customBadges]);
+        } else {
+          setUserBadges(scopeBadges);
+        }
+      } catch {
+        setUserBadges(scopeBadges);
+      }
+
       const { data: mine, error: mineErr } = await supabase
         .from('stories')
         .select(`
           id, title, body, cover_url, likes_count, comments_count,
-          created_at, author_id,
+          created_at, author_id, category,
           profiles!stories_author_id_fkey ( display_name, avatar_url )
         `)
         .eq('author_id', uid)
@@ -318,12 +405,76 @@ export default function Profile() {
         if (profileArr.length === 0) {
           return {
             ...story,
-            profiles: [{ display_name: prof?.display_name || 'Tú', avatar_url: prof?.avatar_url ?? null }],
+            profiles: [{ display_name: prof?.display_name || 'Tú', avatar_url: prof?.avatar_url ?? null, user_badges: [] }],
           };
         }
         return { ...story, profiles: profileArr };
       });
-      setMyStories(myStoriesWithAuthor);
+
+      // Cargar insignias de todos los autores de mis historias
+      const myStoryAuthorIds = Array.from(new Set(mine?.map((s: any) => s.author_id)));
+      const myBadgesMap = new Map<string, any[]>();
+      if (myStoryAuthorIds.length) {
+        const { data: assignedBadges } = await supabase
+          .from('user_badges')
+          .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+          .in('user_id', myStoryAuthorIds)
+          .order('granted_at', { ascending: true });
+        if (assignedBadges) {
+          assignedBadges.forEach((row: any) => {
+            const uid = row.user_id;
+            const badge = row.badges;
+            if (badge) {
+              const existing = myBadgesMap.get(uid) || [];
+              existing.push({ ...badge, _assigned_at: row.granted_at });
+              myBadgesMap.set(uid, existing);
+            }
+          });
+        }
+        // Scope badges
+        const { data: scopeBadges } = await supabase
+          .from('badges')
+          .select('id, name, description, color, icon, scope')
+          .order('name', { ascending: true });
+        (scopeBadges || []).forEach((badge: any) => {
+          if (badge.scope === 'all_users') {
+            myStoryAuthorIds.forEach((aid) => {
+              const existing = myBadgesMap.get(aid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                myBadgesMap.set(aid, existing);
+              }
+            });
+          } else if (badge.scope === 'admin_only') {
+            myStoryAuthorIds.forEach((aid) => {
+              const profRow = (mine || []).find((s: any) => s.author_id === aid);
+              if ((profRow as any)?.profiles?.[0]?.is_admin) {
+                const existing = myBadgesMap.get(aid) || [];
+                if (!existing.some((b: any) => b.id === badge.id)) {
+                  existing.push(badge);
+                  myBadgesMap.set(aid, existing);
+                }
+              }
+            });
+          }
+        });
+      }
+
+      // Asignar insignias a las historias
+      const myStoriesWithBadges = myStoriesWithAuthor.map((st: any) => {
+        const authorId = st.author_id;
+        const authorBadges = myBadgesMap.get(authorId) || [];
+        const authorIsAdmin = st.profiles?.[0]?.is_admin ?? false;
+        return {
+          ...st,
+          profiles: [{
+            ...st.profiles?.[0],
+            user_badges: authorBadges,
+            is_admin: authorIsAdmin,
+          }],
+        };
+      });
+      setMyStories(myStoriesWithBadges);
 
       const { data: likeRows, error: likeErr } = await supabase
         .from('story_likes')
@@ -345,7 +496,7 @@ export default function Profile() {
           .from('stories')
           .select(`
             id, title, body, cover_url, likes_count, comments_count,
-            created_at, author_id,
+            created_at, author_id, category,
             profiles!stories_author_id_fkey ( display_name, avatar_url )
           `)
           .in('id', ids);
@@ -393,7 +544,67 @@ export default function Profile() {
           const db = b.liked_at ?? b.created_at;
           return db.localeCompare(da);
         });
-        setLikedStories(likedWithAuthor);
+
+        // Cargar insignias de autores de historias con like
+        const likedAuthorIds = Array.from(new Set(likedWithAuthor.map((s: any) => s.author_id)));
+        const likedBadgesMap = new Map<string, any[]>();
+        if (likedAuthorIds.length) {
+          const { data: assignedBadges } = await supabase
+            .from('user_badges')
+            .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+            .in('user_id', likedAuthorIds)
+            .order('granted_at', { ascending: true });
+          if (assignedBadges) {
+            assignedBadges.forEach((row: any) => {
+              const uid = row.user_id;
+              const badge = row.badges;
+              if (badge) {
+                const existing = likedBadgesMap.get(uid) || [];
+                existing.push({ ...badge, _assigned_at: row.granted_at });
+                likedBadgesMap.set(uid, existing);
+              }
+            });
+          }
+          const { data: scopeBadges } = await supabase
+            .from('badges')
+            .select('id, name, description, color, icon, scope')
+            .order('name', { ascending: true });
+          (scopeBadges || []).forEach((badge: any) => {
+            if (badge.scope === 'all_users') {
+              likedAuthorIds.forEach((aid) => {
+                const existing = likedBadgesMap.get(aid) || [];
+                if (!existing.some((b: any) => b.id === badge.id)) {
+                  existing.push(badge);
+                  likedBadgesMap.set(aid, existing);
+                }
+              });
+            } else if (badge.scope === 'admin_only') {
+              likedAuthorIds.forEach((aid) => {
+                const profRow = likedWithAuthor.find((s: any) => s.author_id === aid);
+                if ((profRow as any)?.profiles?.[0]?.is_admin) {
+                  const existing = likedBadgesMap.get(aid) || [];
+                  if (!existing.some((b: any) => b.id === badge.id)) {
+                    existing.push(badge);
+                    likedBadgesMap.set(aid, existing);
+                  }
+                }
+              });
+            }
+          });
+        }
+
+        const likedWithBadges = likedWithAuthor.map((st: any) => {
+          const authorId = st.author_id;
+          const authorBadges = likedBadgesMap.get(authorId) || [];
+          return {
+            ...st,
+            profiles: [{
+              ...st.profiles?.[0],
+              user_badges: authorBadges,
+            }],
+          };
+        });
+        setLikedStories(likedWithBadges);
       }
     } catch (e: any) {
       showNotification('Error', e?.message ?? 'No se pudo cargar tu perfil.', 'error');
@@ -569,17 +780,16 @@ export default function Profile() {
 
           <View style={{ flex: 1 }}>
             <Text style={s.name}>{displayName}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
-              {isAdmin && (
-                <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'admin' })} hitSlop={8}>
-                  <MaterialIcons name="verified" size={24} color="#FFD700" />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+              {userBadges.map((badge) => (
+                <TouchableOpacity
+                  key={badge.id}
+                  onPress={() => { setSelectedUserBadge(badge); setShowBadgeInfo(true); }}
+                  hitSlop={8}
+                >
+                  <BadgeIcon iconKey={badge.icon || 'verified_MI_0'} size={24} color={badge.color} />
                 </TouchableOpacity>
-              )}
-              {isEarlyUser && (
-                <TouchableOpacity onPress={() => setBadgeModal({ visible: true, type: 'early' })} hitSlop={8}>
-                  <MaterialIcons name="verified" size={24} color="#06B6D4" />
-                </TouchableOpacity>
-              )}
+              ))}
             </View>
           </View>
         </View>
@@ -630,29 +840,18 @@ export default function Profile() {
         />
 
         {/* Modales del perfil */}
-        <Modal visible={badgeModal.visible} transparent animationType="fade">
+        <Modal visible={showBadgeInfo} transparent animationType="fade" onRequestClose={() => setShowBadgeInfo(false)}>
           <View style={s.badgeOverlay}>
-            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setBadgeModal({ visible: false, type: null })} />
+            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setShowBadgeInfo(false)} />
             <View style={s.badgeContent}>
-              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setBadgeModal({ visible: false, type: null })}>
+              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setShowBadgeInfo(false)}>
                 <Ionicons name="close-circle" size={28} color="#F3F4F6" />
               </TouchableOpacity>
-              {badgeModal.type === 'admin' && (
+              {selectedUserBadge && (
                 <View style={s.badgeInfo}>
-                  <MaterialIcons name="verified" size={56} color="#FFD700" />
-                  <Text style={s.badgeTitle}>Administrador</Text>
-                  <Text style={s.badgeDesc}>
-                    Esta insignia indica que eres administrador de la aplicación U-PAZ. Tienes permisos especiales para moderar y gestionar contenido.
-                  </Text>
-                </View>
-              )}
-              {badgeModal.type === 'early' && (
-                <View style={s.badgeInfo}>
-                  <MaterialIcons name="verified" size={56} color="#06B6D4" />
-                  <Text style={s.badgeTitle}>Usuario Temprano</Text>
-                  <Text style={s.badgeDesc}>
-                    Fuiste uno de los primeros en unirse a U-PAZ antes de finalizar 2025.
-                  </Text>
+                  <BadgeIcon iconKey={selectedUserBadge.icon || 'verified_MI_0'} size={56} color={selectedUserBadge.color} />
+                  <Text style={s.badgeTitle}>{selectedUserBadge.name}</Text>
+                  <Text style={s.badgeDesc}>{selectedUserBadge.description}</Text>
                 </View>
               )}
             </View>
@@ -842,12 +1041,64 @@ function ProfileStoryCard({
         `)
         .eq('story_id', item.id);
       if (error) throw error;
+
+      const userIds = (likes ?? []).map((l: any) => l.user_id);
+      const profileMap = new Map((likes ?? []).map((l: any) => [l.profiles?.id, l.profiles]));
+      const badgesMap = new Map<string, any[]>();
+
+      // Cargar insignias asignadas
+      const { data: assignedBadges } = await supabase
+        .from('user_badges')
+        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+        .in('user_id', userIds)
+        .order('granted_at', { ascending: true });
+      if (assignedBadges) {
+        assignedBadges.forEach((row: any) => {
+          const uid = row.user_id;
+          const badge = row.badges;
+          if (badge) {
+            const existing = badgesMap.get(uid) || [];
+            existing.push({ ...badge, _assigned_at: row.granted_at });
+            badgesMap.set(uid, existing);
+          }
+        });
+      }
+
+      // Cargar badges de scope
+      const { data: scopeBadges } = await supabase
+        .from('badges')
+        .select('id, name, description, color, icon, scope')
+        .order('name', { ascending: true });
+      (scopeBadges || []).forEach((badge: any) => {
+        if (badge.scope === 'all_users') {
+          userIds.forEach((uid) => {
+            const existing = badgesMap.get(uid) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          });
+        } else if (badge.scope === 'admin_only') {
+          userIds.forEach((uid) => {
+            const profile = profileMap.get(uid);
+            if (profile?.is_admin) {
+              const existing = badgesMap.get(uid) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(uid, existing);
+              }
+            }
+          });
+        }
+      });
+
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
         id: like.profiles.id,
         display_name: like.profiles.display_name,
         avatar_url: like.profiles.avatar_url,
         is_admin: like.profiles.is_admin,
         created_at: like.profiles.created_at,
+        userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
     } catch (e: any) {
@@ -888,7 +1139,19 @@ function ProfileStoryCard({
             ) : (
               <View style={[s.avatarMini, { backgroundColor: '#0F1016' }]} />
             )}
-            <Text style={s.authorTxt}>{authorForCard}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={s.authorTxt}>{authorForCard}</Text>
+              {profileArr[0]?.user_badges?.map((badge: any, idx: number) => (
+                <BadgeIcon
+                  key={idx}
+                  iconKey={badge.icon || 'verified_MI_0'}
+                  size={12}
+                  color={badge.color || '#F3F4F6'}
+                />
+              ))}
+            </View>
+            <View style={{ flex: 1 }} />
+            {item.category && <CategoryBadge category={item.category} />}
           </View>
 
           <Text style={s.cardTitle}>{item.title}</Text>
@@ -976,8 +1239,9 @@ function ProfileStoryCard({
                         )}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                           <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                          {user.is_admin && <MaterialIcons name="verified" size={14} color="#FFD700" />}
-                          {isUserEarly && <MaterialIcons name="verified" size={14} color="#06B6D4" />}
+                          {user.userBadges?.map((badge, idx) => (
+                            <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+                          ))}
                         </View>
                         <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
                       </TouchableOpacity>
@@ -1054,7 +1318,7 @@ const s = StyleSheet.create({
     width: 26, height: 26, borderRadius: 13, backgroundColor: '#0F1016',
     borderWidth: 1, borderColor: '#1F1F27',
   },
-  authorTxt: { color: '#E5E7EB', fontWeight: '600', flex: 1 },
+  authorTxt: { color: '#E5E7EB', fontWeight: '600' },
   cardTitle: { color: '#F3F4F6', fontWeight: '700', fontSize: 18, marginBottom: 8 },
   cardImg: { width: '100%', aspectRatio: 16 / 9, borderRadius: 10, marginBottom: 8 },
   excerpt: { color: '#D1D5DB' },

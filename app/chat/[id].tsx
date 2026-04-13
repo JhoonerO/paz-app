@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, Image, FlatList, TextInput,
-  TouchableOpacity, KeyboardAvoidingView, Platform,
+  TouchableOpacity, Platform,
   ActivityIndicator, Animated, Modal, Pressable, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,7 +12,8 @@ import { supabase } from '../../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import StoryMessageCard from '../../components/StoryMessageCard'; // ← NUEVO
+import StoryMessageCard from '../../components/StoryMessageCard';
+import { BadgeIcon } from '../profile/settings';
 
 // ── Tipo Message actualizado ──────────────────────────────────────────────────
 type Message = {
@@ -106,6 +107,7 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [otherBadges, setOtherBadges] = useState<any[]>([]);
 
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [showChatMenu, setShowChatMenu] = useState(false);
@@ -153,6 +155,50 @@ export default function ChatScreen() {
       setMyId(user.id);
       myIdRef.current = user.id;
       await loadMessages(user.id);
+
+      // Cargar insignias del otro usuario
+      if (otherUserId) {
+        const badgesMap = new Map<string, any[]>();
+        const { data: assignedBadges } = await supabase
+          .from('user_badges')
+          .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
+          .eq('user_id', otherUserId)
+          .order('granted_at', { ascending: true });
+        if (assignedBadges) {
+          assignedBadges.forEach((row: any) => {
+            const uid = row.user_id;
+            const badge = row.badges;
+            if (badge) {
+              const existing = badgesMap.get(uid) || [];
+              existing.push(badge);
+              badgesMap.set(uid, existing);
+            }
+          });
+        }
+        const { data: scopeBadges } = await supabase
+          .from('badges')
+          .select('id, name, description, color, icon, scope')
+          .order('name', { ascending: true });
+        const otherIsAdmin = isAdmin === '1';
+        (scopeBadges || []).forEach((badge: any) => {
+          if (badge.scope === 'all_users') {
+            const existing = badgesMap.get(otherUserId) || [];
+            if (!existing.some((b: any) => b.id === badge.id)) {
+              existing.push(badge);
+              badgesMap.set(otherUserId, existing);
+            }
+          } else if (badge.scope === 'admin_only') {
+            if (otherIsAdmin) {
+              const existing = badgesMap.get(otherUserId) || [];
+              if (!existing.some((b: any) => b.id === badge.id)) {
+                existing.push(badge);
+                badgesMap.set(otherUserId, existing);
+              }
+            }
+          }
+        });
+        setOtherBadges(badgesMap.get(otherUserId) || []);
+      }
     };
     init();
   }, [loadMessages]);
@@ -403,8 +449,9 @@ export default function ChatScreen() {
           >
             <TouchableOpacity style={s.headerNameRow} activeOpacity={0.8}>
               <Text style={s.headerName} numberOfLines={1}>{otherName}</Text>
-              {isAdminBadge && <MaterialIcons name="verified" size={16} color="#FFD700" />}
-              {isEarlyBadge && <MaterialIcons name="verified" size={16} color="#06B6D4" />}
+              {otherBadges.map((badge: any, idx: number) => (
+                <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+              ))}
             </TouchableOpacity>
           </Link>
         </View>
@@ -413,17 +460,15 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior="padding"
-        keyboardVerticalOffset={56 + insets.top}
-      >
+      {/* Area de mensajes con input abajo */}
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
         {loading ? <MessagesSkeleton /> : (
           <FlatList
             ref={flatListRef}
             data={flatItems}
             keyExtractor={(item) => item.kind === 'label' ? item.key : item.msg.id}
-            contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 8, flexGrow: 1 }}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
@@ -514,7 +559,7 @@ export default function ChatScreen() {
 
         {/* ── Input / Modo edición ──────────────────────────────────────── */}
         {editingMsg ? (
-          <View style={[s.inputRow, { paddingBottom: 8 }]}>
+          <View style={s.inputRow}>
             <TouchableOpacity style={s.attachBtn} hitSlop={10}
               onPress={() => { setEditingMsg(null); setEditText(''); }}>
               <Ionicons name="close-outline" size={22} color="#ef4444" />
@@ -532,7 +577,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={[s.inputRow, { paddingBottom: 8 }]}>
+          <View style={s.inputRow}>
             <TouchableOpacity style={s.attachBtn} hitSlop={10}
               onPress={handlePickImage} disabled={uploadingImage}>
               {uploadingImage
@@ -556,7 +601,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </View>
 
       {/* ── Preview imagen ────────────────────────────────────────────────── */}
       <Modal visible={!!previewImage} transparent animationType="fade"
