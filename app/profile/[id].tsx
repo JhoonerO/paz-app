@@ -281,35 +281,20 @@ export default function PublicProfile() {
       if (!allBadgeErr) setAllBadges(allBadgeRows as ProfileBadge[]);
       else setAllBadges([]);
 
-      // Cargar insignias visibles para ESTE perfil
-      // 1. admin_only si el perfil es admin
-      // 2. all_users siempre
-      // 3. custom solo si están asignadas en user_badges
-      try {
-        const scopeBadges = (allBadgeRows || [])
-          .filter((b: any) => {
-            if (b.scope === 'admin_only') return profileIsAdmin;
-            if (b.scope === 'all_users') return true;
-            return false;
-          }) as ProfileBadge[];
+      // Cargar insignias ASIGNADAS a este usuario desde user_badges
+      const { data: assignedBadges, error: assignedErr } = await supabase
+        .from('user_badges')
+        .select(`id, badges ( id, name, description, color, icon, scope )`)
+        .eq('user_id', profileId);
 
-        const { data: assignedBadges, error: assignedErr } = await supabase
-          .from('user_badges')
-          .select(`badges ( id, name, description, color, icon, scope )`)
-          .eq('user_id', profileId);
-
-        if (!assignedErr && assignedBadges) {
-          const customBadges = assignedBadges
-            .map((r: any) => ({ ...r.badges, userBadgeId: r.id }))
-            .filter((b: any) => b.scope === 'custom');
-          const allBadges = [...scopeBadges, ...customBadges];
-          setUserBadges(allBadges);
-          setUserBadgeIds(allBadges.map((b: any) => b.id));
-        } else {
-          setUserBadges(scopeBadges);
-          setUserBadgeIds(scopeBadges.map((b: any) => b.id));
-        }
-      } catch {
+      if (!assignedErr && assignedBadges) {
+        const allAssigned = assignedBadges
+          .map((r: any) => ({ ...r.badges, userBadgeId: r.id }))
+          .filter(Boolean);
+        console.log('[PERFIL] Insignias cargadas:', allAssigned.length, allAssigned);
+        setUserBadges(allAssigned);
+        setUserBadgeIds(allAssigned.map((b: any) => b.id));
+      } else {
         setUserBadges([]);
         setUserBadgeIds([]);
       }
@@ -564,17 +549,30 @@ export default function PublicProfile() {
 
   // ── Remover insignia ───────────────────────────────────────────────────
   const removeUserBadge = async (userBadgeId: string, badgeName: string) => {
-    const { error } = await supabase
-      .from('user_badges')
-      .delete()
-      .eq('id', userBadgeId);
-    if (error) {
-      Alert.alert('Error', 'No se pudo remover la insignia.');
-    } else {
-      setShowBadgeInfo(false);
-      loadFromSupabase();
-      Alert.alert('Removida', `Insignia "${badgeName}" removida.`);
-    }
+    setShowBadgeInfo(false);
+    Alert.alert(
+      'Remover insignia',
+      `¿Quieres quitar "${badgeName}" a este usuario? Esta acción no afectará las insignias de otros usuarios.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase
+              .from('user_badges')
+              .delete()
+              .eq('id', userBadgeId);
+            if (error) {
+              Alert.alert('Error', 'No se pudo remover la insignia.');
+            } else {
+              loadFromSupabase();
+              Alert.alert('Listo', `Insignia "${badgeName}" removida correctamente.`);
+            }
+          },
+        },
+      ]
+    );
   };
 
   useEffect(() => { loadFromSupabase(); }, [loadFromSupabase]);
@@ -676,7 +674,12 @@ export default function PublicProfile() {
                 {userBadges.map((badge) => (
                   <TouchableOpacity
                     key={badge.id}
-                    onPress={() => { setSelectedUserBadge(badge); setShowBadgeInfo(true); }}
+                    onPress={() => { 
+                      console.log('[BADGE TOUCH] Badge:', badge.name, 'userBadgeId:', (badge as any).userBadgeId);
+                      console.log('[BADGE TOUCH] Viewer:', viewerId, 'isViewerAdmin:', isViewerAdmin);
+                      setSelectedUserBadge(badge); 
+                      setShowBadgeInfo(true); 
+                    }}
                     hitSlop={8}
                   >
                     <BadgeIcon iconKey={badge.icon || 'verified_MI_0'} size={24} color={badge.color} />
@@ -769,7 +772,7 @@ export default function PublicProfile() {
                   <BadgeIcon iconKey={selectedUserBadge.icon || 'verified_MI_0'} size={56} color={selectedUserBadge.color} />
                   <Text style={s.badgeTitle}>{selectedUserBadge.name}</Text>
                   <Text style={s.badgeDesc}>{selectedUserBadge.description}</Text>
-                  {/* Admin visitante puede remover la insignia */}
+                  {/* Admin puede remover la insignia */}
                   {viewerId && isViewerAdmin && (selectedUserBadge as any).userBadgeId && (
                     <TouchableOpacity
                       style={s.removeBadgeBtn}
