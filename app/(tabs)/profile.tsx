@@ -4,7 +4,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   FlatList,
   Modal,
@@ -13,6 +12,7 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, FontAwesome6 } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -22,6 +22,7 @@ import { supabase } from '../../lib/supabase';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges, type StaticBadge } from '../../lib/badges';
 import { checkAndUpdateStreak, getCurrentLevel } from '../../lib/gamification';
+import { getScopeBadges } from '../../lib/badgeCache';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
@@ -121,7 +122,7 @@ const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: st
   mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
   leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
   urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
-  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#6B7280' },
 };
 
 function CategoryBadge({ category }: { category: StoryCategory }) {
@@ -374,13 +375,8 @@ export default function Profile() {
         .then(({ data: g }) => { if (g) setUserXP(g.xp ?? 0); });
 
       // Cargar insignias según scope
-      const { data: badgeRows, error: badgeErr } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-
       const userIsAdmin = prof?.is_admin ?? false;
-      const allBadgesList = (badgeRows || []) as ProfileBadge[];
+      const allBadgesList = (await getScopeBadges()) as ProfileBadge[];
 
       // Auto-asignadas por scope
       const scopeBadges = allBadgesList.filter(b => {
@@ -433,6 +429,9 @@ export default function Profile() {
         return { ...story, profiles: profileArr };
       });
 
+      const adminScopeBadges = allBadgesList.filter((b: any) => b.scope === 'admin_only');
+      const allUsersScopeBadges = allBadgesList.filter((b: any) => b.scope === 'all_users');
+
       // Cargar insignias de todos los autores de mis historias
       const myStoryAuthorIds = Array.from(new Set(mine?.map((s: any) => s.author_id)));
       const myBadgesMap = new Map<string, any[]>();
@@ -453,32 +452,18 @@ export default function Profile() {
             }
           });
         }
-        // Scope badges
-        const { data: scopeBadges } = await supabase
-          .from('badges')
-          .select('id, name, description, color, icon, scope')
-          .order('name', { ascending: true });
-        (scopeBadges || []).forEach((badge: any) => {
-          if (badge.scope === 'all_users') {
-            myStoryAuthorIds.forEach((aid) => {
-              const existing = myBadgesMap.get(aid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                myBadgesMap.set(aid, existing);
-              }
-            });
-          } else if (badge.scope === 'admin_only') {
-            myStoryAuthorIds.forEach((aid) => {
-              const profRow = (mine || []).find((s: any) => s.author_id === aid);
-              if ((profRow as any)?.profiles?.[0]?.is_admin) {
-                const existing = myBadgesMap.get(aid) || [];
-                if (!existing.some((b: any) => b.id === badge.id)) {
-                  existing.push(badge);
-                  myBadgesMap.set(aid, existing);
-                }
-              }
+        myStoryAuthorIds.forEach((aid) => {
+          const existingIds = new Set((myBadgesMap.get(aid) || []).map((b: any) => b.id));
+          const arr = myBadgesMap.get(aid) || [];
+          allUsersScopeBadges.forEach((badge: any) => {
+            if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
+          });
+          if (userIsAdmin) {
+            adminScopeBadges.forEach((badge: any) => {
+              if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
             });
           }
+          if (arr.length) myBadgesMap.set(aid, arr);
         });
       }
 
@@ -593,31 +578,20 @@ export default function Profile() {
               }
             });
           }
-          const { data: scopeBadges } = await supabase
-            .from('badges')
-            .select('id, name, description, color, icon, scope')
-            .order('name', { ascending: true });
-          (scopeBadges || []).forEach((badge: any) => {
-            if (badge.scope === 'all_users') {
-              likedAuthorIds.forEach((aid) => {
-                const existing = likedBadgesMap.get(aid) || [];
-                if (!existing.some((b: any) => b.id === badge.id)) {
-                  existing.push(badge);
-                  likedBadgesMap.set(aid, existing);
-                }
-              });
-            } else if (badge.scope === 'admin_only') {
-              likedAuthorIds.forEach((aid) => {
-                const profRow = likedWithAuthor.find((s: any) => s.author_id === aid);
-                if ((profRow as any)?.profiles?.[0]?.is_admin) {
-                  const existing = likedBadgesMap.get(aid) || [];
-                  if (!existing.some((b: any) => b.id === badge.id)) {
-                    existing.push(badge);
-                    likedBadgesMap.set(aid, existing);
-                  }
-                }
+          const likedAdminMap = new Map<string, boolean>();
+          likedWithAuthor.forEach((s: any) => likedAdminMap.set(s.author_id, s.profiles?.[0]?.is_admin ?? false));
+          likedAuthorIds.forEach((aid) => {
+            const existingIds = new Set((likedBadgesMap.get(aid) || []).map((b: any) => b.id));
+            const arr = likedBadgesMap.get(aid) || [];
+            allUsersScopeBadges.forEach((badge: any) => {
+              if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
+            });
+            if (likedAdminMap.get(aid)) {
+              adminScopeBadges.forEach((badge: any) => {
+                if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
               });
             }
+            if (arr.length) likedBadgesMap.set(aid, arr);
           });
         }
 
@@ -1059,7 +1033,7 @@ function ImageZoomModal({
             <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
                 <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-                  <Image source={{ uri: imageUri }} style={s.zoomImage} resizeMode="cover" />
+                  <Image source={{ uri: imageUri }} style={s.zoomImage} contentFit="cover" />
                 </TouchableOpacity>
               </Animated.View>
             </PinchGestureHandler>
@@ -1131,32 +1105,15 @@ function ProfileStoryCard({
         });
       }
 
-      // Cargar badges de scope
-      const { data: scopeBadges } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-      (scopeBadges || []).forEach((badge: any) => {
-        if (badge.scope === 'all_users') {
-          userIds.forEach((uid) => {
-            const existing = badgesMap.get(uid) || [];
-            if (!existing.some((b: any) => b.id === badge.id)) {
-              existing.push(badge);
-              badgesMap.set(uid, existing);
-            }
-          });
-        } else if (badge.scope === 'admin_only') {
-          userIds.forEach((uid) => {
-            const profile = profileMap.get(uid);
-            if (profile?.is_admin) {
-              const existing = badgesMap.get(uid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                badgesMap.set(uid, existing);
-              }
-            }
-          });
-        }
+      const likeScopeBadges = await getScopeBadges();
+      likeScopeBadges.forEach((badge: any) => {
+        userIds.forEach((uid) => {
+          const profile = profileMap.get(uid);
+          if (badge.scope === 'admin_only' && !profile?.is_admin) return;
+          const existing = badgesMap.get(uid) || [];
+          if (!existing.some((b: any) => b.id === badge.id)) existing.push(badge);
+          badgesMap.set(uid, existing);
+        });
       });
 
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({

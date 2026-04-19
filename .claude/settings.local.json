@@ -4,7 +4,10 @@
       "Bash(grep -r \"SECRET\\\\|PRIVATE\\\\|KEY\\\\|API\" /c/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*.claude/worktrees*\" ! -path \"*node_modules*\")",
       "Bash(grep -r \"is_admin\\\\|role\\\\|permission\\\\|isAdmin\" /c/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*.claude/worktrees*\" ! -path \"*node_modules*\")",
       "Bash(grep -r \"rpc\\\\|function\\\\|trigger\" /c/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*.claude/worktrees*\" ! -path \"*node_modules*\")",
-      "Bash(node -e \"require\\('./lib/badges.ts'\\)\")"
+      "Bash(node -e \"require\\('./lib/badges.ts'\\)\")",
+      "Bash(npx expo *)",
+      "Bash(magick -version)",
+      "Bash(convert -version)"
     ]
   }
 }

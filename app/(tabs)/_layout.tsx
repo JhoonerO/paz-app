@@ -87,13 +87,13 @@ function HeaderTitle({ width }: { width: number }) {
   );
 }
 
-function HeaderRight({ unreadCount }: { unreadCount: number }) {
+function HeaderRight({ unreadCount, muted }: { unreadCount: number; muted: boolean }) {
   return (
     <Link href="/notifications" asChild>
       <Pressable hitSlop={10} style={{ paddingHorizontal: 12 }}>
         <View style={{ position: 'relative' }}>
           <Ionicons name="notifications-sharp" size={24} color="white" />
-          {unreadCount > 0 && (
+          {unreadCount > 0 && !muted && (
             <View style={s.badge}>
               <Text style={s.badgeTxt}>
                 {unreadCount > 9 ? '9+' : unreadCount}
@@ -109,6 +109,7 @@ function HeaderRight({ unreadCount }: { unreadCount: number }) {
 export default function TabsLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [notifMuted, setNotifMuted] = useState(false);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const navigation = useNavigation();
@@ -122,19 +123,27 @@ export default function TabsLayout() {
   // ✅ Memoizados para que Tabs no los vea como props nuevos en cada render
   const headerTitleFn = useCallback(() => <HeaderTitle width={width} />, [width]);
   const headerRightFn = useCallback(
-    () => <HeaderRight unreadCount={unreadCount} />,
-    [unreadCount]
+    () => <HeaderRight unreadCount={unreadCount} muted={notifMuted} />,
+    [unreadCount, notifMuted]
   );
 
   const loadUnread = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { count, error } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .eq('read', false);
+    const [{ count, error }, { data: prof }] = await Promise.all([
+      supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('read', false),
+      supabase
+        .from('profiles')
+        .select('notifications_muted')
+        .eq('id', user.id)
+        .single<{ notifications_muted: boolean }>(),
+    ]);
     if (!error && typeof count === 'number') setUnreadCount(count);
+    setNotifMuted(Boolean(prof?.notifications_muted));
   };
 
   const loadUnreadMessages = async () => {

@@ -4,11 +4,11 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +17,7 @@ import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
 type NotificationItem = {
   id: string;
-  type: 'like' | 'comment';
+  type: 'like' | 'comment' | 'report';
   actorName: string;
   actorAvatar: string | null;
   storyId: string;
@@ -200,6 +200,8 @@ function NotificationRow({
   const message =
     item.type === 'like'
       ? `${item.actorName} le ha gustado tu historia`
+      : item.type === 'report'
+      ? `"${item.storyTitle}" tiene múltiples reportes — revísala`
       : `${item.actorName} comentó tu historia`;
 
   const ago = timeAgo(item.createdAt);
@@ -239,9 +241,9 @@ function NotificationRow({
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons
-                name={item.type === 'like' ? 'heart' : 'chatbubble-ellipses'}
+                name={item.type === 'like' ? 'heart' : item.type === 'report' ? 'flag' : 'chatbubble-ellipses'}
                 size={14}
-                color={item.type === 'like' ? '#ef4444' : '#F3F4F6'}
+                color={item.type === 'like' ? '#ef4444' : item.type === 'report' ? '#f97316' : '#F3F4F6'}
               />
               <Text style={s.message} numberOfLines={2}>
                 {message}
@@ -260,7 +262,7 @@ function NotificationRow({
           <Image
             source={{ uri: item.storyCover }}
             style={s.thumb}
-            resizeMode="cover"
+            contentFit="cover"
           />
         ) : null}
       </TouchableOpacity>

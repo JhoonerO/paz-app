@@ -4,7 +4,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   FlatList,
   Alert,
@@ -13,6 +12,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -24,6 +24,8 @@ import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from './settings';
 import { getStaticBadges, type StaticBadge } from '../../lib/badges';
 import { getCurrentLevel } from '../../lib/gamification';
+import { getScopeBadges } from '../../lib/badgeCache';
+import { getProfileSnapshot, setProfileSnapshot } from '../../lib/profileCache';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -99,7 +101,7 @@ const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: st
   mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
   leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
   urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
-  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#6B7280' },
 };
 
 function CategoryBadge({ category }: { category: StoryCategory }) {
@@ -251,6 +253,22 @@ export default function PublicProfile() {
     try {
       if (!profileId) return;
 
+      // Mostrar cache inmediatamente para navegación instantánea
+      const cached = getProfileSnapshot(profileId);
+      if (cached) {
+        setDisplayName(cached.displayName);
+        setAvatarUrl(cached.avatarUrl);
+        setIsAdmin(cached.isAdmin);
+        setCreatedAt(cached.createdAt);
+        setVisitedXP(cached.visitedXP);
+        setLikesPublic(cached.likesPublic);
+        setUserBadges(cached.userBadges);
+        setStories(cached.stories);
+        setLikedStories(cached.likedStories);
+        setLoading(false);
+        return;
+      }
+
       const { data: authData } = await supabase.auth.getUser();
       const uidViewer = authData.user?.id ?? null;
       setViewerId(uidViewer);
@@ -284,12 +302,8 @@ export default function PublicProfile() {
         .then(({ data: g }) => { if (g) setVisitedXP(g.xp ?? 0); });
 
       // Cargar TODAS las insignias (para admin pueda regalar)
-      const { data: allBadgeRows, error: allBadgeErr } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-      if (!allBadgeErr) setAllBadges(allBadgeRows as ProfileBadge[]);
-      else setAllBadges([]);
+      const allBadgeRows = await getScopeBadges();
+      setAllBadges(allBadgeRows as ProfileBadge[]);
 
       // Cargar insignias ASIGNADAS a este usuario desde user_badges
       const { data: assignedBadges, error: assignedErr } = await supabase
@@ -297,13 +311,13 @@ export default function PublicProfile() {
         .select(`id, badges ( id, name, description, color, icon, scope )`)
         .eq('user_id', profileId);
 
+      let localUserBadges: any[] = [];
       if (!assignedErr && assignedBadges) {
-        const allAssigned = assignedBadges
+        localUserBadges = assignedBadges
           .map((r: any) => ({ ...r.badges, userBadgeId: r.id }))
           .filter(Boolean);
-        console.log('[PERFIL] Insignias cargadas:', allAssigned.length, allAssigned);
-        setUserBadges(allAssigned);
-        setUserBadgeIds(allAssigned.map((b: any) => b.id));
+        setUserBadges(localUserBadges);
+        setUserBadgeIds(localUserBadges.map((b: any) => b.id));
       } else {
         setUserBadges([]);
         setUserBadgeIds([]);
@@ -360,30 +374,21 @@ export default function PublicProfile() {
             }
           });
         }
-        const { data: scopeBadges } = await supabase
-          .from('badges')
-          .select('id, name, description, color, icon, scope')
-          .order('name', { ascending: true });
-        (scopeBadges || []).forEach((badge: any) => {
-          if (badge.scope === 'all_users') {
-            storyAuthorIds.forEach((aid) => {
-              const existing = storyBadgesMap.get(aid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                storyBadgesMap.set(aid, existing);
-              }
-            });
-          } else if (badge.scope === 'admin_only') {
-            storyAuthorIds.forEach((aid) => {
-              if (profileIsAdmin) {
-                const existing = storyBadgesMap.get(aid) || [];
-                if (!existing.some((b: any) => b.id === badge.id)) {
-                  existing.push(badge);
-                  storyBadgesMap.set(aid, existing);
-                }
-              }
+        const storyScopeBadges = await getScopeBadges();
+        const storyAdminBadges = storyScopeBadges.filter((b: any) => b.scope === 'admin_only');
+        const storyAllUsersBadges = storyScopeBadges.filter((b: any) => b.scope === 'all_users');
+        storyAuthorIds.forEach((aid) => {
+          const existingIds = new Set((storyBadgesMap.get(aid) || []).map((b: any) => b.id));
+          const arr = storyBadgesMap.get(aid) || [];
+          storyAllUsersBadges.forEach((badge: any) => {
+            if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
+          });
+          if (profileIsAdmin) {
+            storyAdminBadges.forEach((badge: any) => {
+              if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
             });
           }
+          if (arr.length) storyBadgesMap.set(aid, arr);
         });
       }
 
@@ -474,30 +479,23 @@ export default function PublicProfile() {
                 }
               });
             }
-            const { data: scopeBadges } = await supabase
-              .from('badges')
-              .select('id, name, description, color, icon, scope')
-              .order('name', { ascending: true });
-            (scopeBadges || []).forEach((badge: any) => {
-              if (badge.scope === 'all_users') {
-                likedStoryAuthorIds.forEach((aid) => {
-                  const existing = likedBadgesMap.get(aid) || [];
-                  if (!existing.some((b: any) => b.id === badge.id)) {
-                    existing.push(badge);
-                    likedBadgesMap.set(aid, existing);
-                  }
-                });
-              } else if (badge.scope === 'admin_only') {
-                likedStoryAuthorIds.forEach((aid) => {
-                  if (profileIsAdmin) {
-                    const existing = likedBadgesMap.get(aid) || [];
-                    if (!existing.some((b: any) => b.id === badge.id)) {
-                      existing.push(badge);
-                      likedBadgesMap.set(aid, existing);
-                    }
-                  }
+            const likedScopeBadges = await getScopeBadges();
+            const likedAdminBadges = likedScopeBadges.filter((b: any) => b.scope === 'admin_only');
+            const likedAllUsersBadges = likedScopeBadges.filter((b: any) => b.scope === 'all_users');
+            const likedIsAdminMap = new Map<string, boolean>();
+            likedList.forEach((s: any) => likedIsAdminMap.set(s.author_id, s.profiles?.[0]?.is_admin ?? false));
+            likedStoryAuthorIds.forEach((aid) => {
+              const existingIds = new Set((likedBadgesMap.get(aid) || []).map((b: any) => b.id));
+              const arr = likedBadgesMap.get(aid) || [];
+              likedAllUsersBadges.forEach((badge: any) => {
+                if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
+              });
+              if (likedIsAdminMap.get(aid)) {
+                likedAdminBadges.forEach((badge: any) => {
+                  if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
                 });
               }
+              if (arr.length) likedBadgesMap.set(aid, arr);
             });
           }
 
@@ -539,6 +537,17 @@ export default function PublicProfile() {
       } else {
         setLikedIds(new Set());
       }
+      setProfileSnapshot(profileId, {
+        displayName: prof?.display_name || 'Usuario',
+        avatarUrl: prof?.avatar_url ?? null,
+        isAdmin: profileIsAdmin,
+        createdAt: prof?.created_at ?? '',
+        visitedXP: profileXPData?.xp ?? 0,
+        likesPublic: prof?.likes_public ?? true,
+        userBadges: localUserBadges,
+        stories: storiesWithBadges,
+        likedStories: likedList,
+      });
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'No se pudo cargar el perfil.');
     } finally {
@@ -930,7 +939,7 @@ function ImageZoomModal({
             <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
                 <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-                  <Image source={{ uri: imageUri }} style={s.zoomImage} resizeMode="cover" />
+                  <Image source={{ uri: imageUri }} style={s.zoomImage} contentFit="cover" />
                 </TouchableOpacity>
               </Animated.View>
             </PinchGestureHandler>
@@ -999,32 +1008,15 @@ function PublicStoryCard({
         });
       }
 
-      // Cargar badges de scope
-      const { data: scopeBadges } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-      (scopeBadges || []).forEach((badge: any) => {
-        if (badge.scope === 'all_users') {
-          userIds.forEach((uid) => {
-            const existing = badgesMap.get(uid) || [];
-            if (!existing.some((b: any) => b.id === badge.id)) {
-              existing.push(badge);
-              badgesMap.set(uid, existing);
-            }
-          });
-        } else if (badge.scope === 'admin_only') {
-          userIds.forEach((uid) => {
-            const profile = profileMap.get(uid);
-            if (profile?.is_admin) {
-              const existing = badgesMap.get(uid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                badgesMap.set(uid, existing);
-              }
-            }
-          });
-        }
+      const likesModalScope = await getScopeBadges();
+      likesModalScope.forEach((badge: any) => {
+        userIds.forEach((uid) => {
+          const profile = profileMap.get(uid);
+          if (badge.scope === 'admin_only' && !profile?.is_admin) return;
+          const existing = badgesMap.get(uid) || [];
+          if (!existing.some((b: any) => b.id === badge.id)) existing.push(badge);
+          badgesMap.set(uid, existing);
+        });
       });
 
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({

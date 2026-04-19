@@ -9,7 +9,7 @@
     "backgroundColor": "#0B0B0F",
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/SplashNuevo.png",
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0B0B0F"
     },
@@ -27,7 +27,7 @@
         "backgroundColor": "#0B0B0F"
       },
       "splash": {
-        "image": "./assets/SplashNuevo.png",
+        "image": "./assets/icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#0B0B0F"
       },
@@ -53,7 +53,7 @@
       "bundleIdentifier": "com.jhoonero.paz",
       "icon": "./assets/icon.png",
       "splash": {
-        "image": "./assets/SplashNuevo.png",
+        "image": "./assets/icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#0B0B0F"
       },

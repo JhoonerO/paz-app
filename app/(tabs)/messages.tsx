@@ -1,9 +1,10 @@
 // app/(tabs)/messages.tsx
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
-  View, Text, StyleSheet, Image, FlatList,
+  View, Text, StyleSheet, FlatList,
   TouchableOpacity, TextInput, Animated, Modal, Pressable,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +14,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges } from '../../lib/badges';
 import { getCurrentLevel } from '../../lib/gamification';
+import { getScopeBadges } from '../../lib/badgeCache';
 
 type ConversationItem = {
   id: string;
@@ -77,6 +79,7 @@ export default function MessagesScreen() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Modal long press
   const [selectedConv, setSelectedConv] = useState<ConversationItem | null>(null);
@@ -87,7 +90,8 @@ export default function MessagesScreen() {
         .from('conversations')
         .select('id, user1_id, user2_id, last_message, last_message_at')
         .or(`user1_id.eq.${uid},user2_id.eq.${uid}`)
-        .order('last_message_at', { ascending: false }),
+        .order('last_message_at', { ascending: false })
+        .limit(50),
       supabase
         .from('conversation_hidden')
         .select('conversation_id')
@@ -166,31 +170,23 @@ export default function MessagesScreen() {
           }
         });
       }
-      const { data: scopeBadges } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-      (scopeBadges || []).forEach((badge: any) => {
-        if (badge.scope === 'all_users') {
-          otherIds.forEach((oid) => {
-            const existing = badgesMap.get(oid) || [];
-            if (!existing.some((b: any) => b.id === badge.id)) {
-              existing.push(badge);
-              badgesMap.set(oid, existing);
-            }
-          });
-        } else if (badge.scope === 'admin_only') {
-          otherIds.forEach((oid) => {
-            const p = profileMap.get(oid);
-            if (p?.is_admin) {
-              const existing = badgesMap.get(oid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                badgesMap.set(oid, existing);
-              }
-            }
-          });
-        }
+      const msgScopeBadges = await getScopeBadges();
+      const existingIdsPerUser = new Map<string, Set<string>>();
+      otherIds.forEach(oid => {
+        existingIdsPerUser.set(oid, new Set((badgesMap.get(oid) || []).map((b: any) => b.id)));
+      });
+      msgScopeBadges.forEach((badge: any) => {
+        otherIds.forEach((oid) => {
+          const p = profileMap.get(oid);
+          if (badge.scope === 'admin_only' && !p?.is_admin) return;
+          const existingIds = existingIdsPerUser.get(oid)!;
+          if (!existingIds.has(badge.id)) {
+            const arr = badgesMap.get(oid) || [];
+            arr.push(badge);
+            badgesMap.set(oid, arr);
+            existingIds.add(badge.id);
+          }
+        });
       });
       // Asignar badges
       mapped.forEach((conv) => {
@@ -221,22 +217,30 @@ export default function MessagesScreen() {
 
   useEffect(() => {
     if (!myId) return;
+    const debounced = () => {
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+      realtimeTimerRef.current = setTimeout(() => loadConversations(myId), 600);
+    };
+
     const channel = supabase
       .channel(`conversations-${myId}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'conversations',
         filter: `user1_id=eq.${myId}`,
-      }, () => loadConversations(myId))
+      }, debounced)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'conversations',
         filter: `user2_id=eq.${myId}`,
-      }, () => loadConversations(myId))
+      }, debounced)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
-      }, () => loadConversations(myId))
+      }, debounced)
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+      supabase.removeChannel(channel);
+    };
   }, [myId, loadConversations]);
 
   // ── Borrar conversación solo para mí ─────────────────────────────────────

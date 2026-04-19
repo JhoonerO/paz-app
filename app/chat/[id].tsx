@@ -1,10 +1,11 @@
 // app/chat/[id].tsx
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, StyleSheet, Image, FlatList, TextInput,
+  View, Text, StyleSheet, FlatList, TextInput,
   TouchableOpacity, Platform,
   ActivityIndicator, Animated, Modal, Pressable, Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +18,7 @@ import StoryMessageCard from '../../components/StoryMessageCard';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges } from '../../lib/badges';
 import { getCurrentLevel } from '../../lib/gamification';
+import { getScopeBadges } from '../../lib/badgeCache';
 
 // ── Tipo Message actualizado ──────────────────────────────────────────────────
 type Message = {
@@ -185,27 +187,13 @@ export default function ChatScreen() {
             }
           });
         }
-        const { data: scopeBadges } = await supabase
-          .from('badges')
-          .select('id, name, description, color, icon, scope')
-          .order('name', { ascending: true });
         const otherIsAdmin = isAdmin === '1';
-        (scopeBadges || []).forEach((badge: any) => {
-          if (badge.scope === 'all_users') {
-            const existing = badgesMap.get(otherUserId) || [];
-            if (!existing.some((b: any) => b.id === badge.id)) {
-              existing.push(badge);
-              badgesMap.set(otherUserId, existing);
-            }
-          } else if (badge.scope === 'admin_only') {
-            if (otherIsAdmin) {
-              const existing = badgesMap.get(otherUserId) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                badgesMap.set(otherUserId, existing);
-              }
-            }
-          }
+        const chatScopeBadges = await getScopeBadges();
+        chatScopeBadges.forEach((badge: any) => {
+          if (badge.scope === 'admin_only' && !otherIsAdmin) return;
+          const existing = badgesMap.get(otherUserId) || [];
+          if (!existing.some((b: any) => b.id === badge.id)) existing.push(badge);
+          badgesMap.set(otherUserId, existing);
         });
         setOtherBadges(badgesMap.get(otherUserId) || []);
       }
@@ -551,7 +539,7 @@ export default function ChatScreen() {
                     msg.image_url && !msg.body && { padding: 4 },
                   ]}>
                     {msg.image_url && !isDeleted && (
-                      <Image source={{ uri: msg.image_url }} style={s.msgImage} resizeMode="cover" />
+                      <Image source={{ uri: msg.image_url }} style={s.msgImage} contentFit="cover" />
                     )}
                     {(msg.body || isDeleted) && (
                       <Text style={[s.bubbleTxt, isDeleted && s.deletedTxt]}>
@@ -621,7 +609,7 @@ export default function ChatScreen() {
           <Image
             source={{ uri: previewImage?.uri }}
             style={s.previewImg}
-            resizeMode="contain"
+            contentFit="contain"
           />
           <View style={s.previewActions}>
             <TouchableOpacity style={s.previewCancel} onPress={() => setPreviewImage(null)}>

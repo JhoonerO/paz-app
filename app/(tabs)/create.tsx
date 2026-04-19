@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Image,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import {
   UIManager,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Image } from 'expo-image';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useNavigation } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -280,7 +280,7 @@ export default function CreateScreen() {
               disabled={isBlocked}
             >
               {coverUri ? (
-                <Image source={{ uri: coverUri }} style={s.cover} />
+                <Image source={{ uri: coverUri }} style={s.cover} contentFit="cover" />
               ) : (
                 <View style={s.coverPlaceholder}>
                   <Ionicons name="image-outline" size={22} color="#9CA3AF" />

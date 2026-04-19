@@ -6,11 +6,11 @@ import {
   TextInput,
   FlatList,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   ScrollView,
   Keyboard,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -76,7 +76,7 @@ const CAT_COLOR: Record<StoryCategory, string> = {
   mito:    '#8B9DC3',
   leyenda: '#A0B4B8',
   urbana:  '#9CA3AF',
-  otra:    '#B8A9C9',
+  otra:    '#6B7280',
 };
 
 const CAT_ICON: Record<StoryCategory, string> = {
@@ -167,7 +167,7 @@ function StoryCard({ item, onPress }: { item: DBStory; onPress: () => void }) {
   return (
     <TouchableOpacity activeOpacity={0.85} onPress={onPress} style={styles.card}>
       {item.cover_url && (
-        <Image source={{ uri: item.cover_url }} style={styles.cardCover} resizeMode="cover" />
+        <Image source={{ uri: item.cover_url }} style={styles.cardCover} contentFit="cover" />
       )}
       <View style={styles.cardBody}>
         {/* Author row */}

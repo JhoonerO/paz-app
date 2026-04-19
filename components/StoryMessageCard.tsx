@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { BadgeIcon } from '../app/profile/settings';
@@ -52,7 +53,7 @@ export default function StoryMessageCard({ storyId, snapshot, isDeleted }: Props
     <TouchableOpacity style={c.card} onPress={handlePress} activeOpacity={0.85}>
       {/* Portada - solo si existe */}
       {snapshot.cover_url && (
-        <Image source={{ uri: snapshot.cover_url }} style={c.cover} resizeMode="cover" />
+        <Image source={{ uri: snapshot.cover_url }} style={c.cover} contentFit="cover" />
       )}
 
       {/* Info */}

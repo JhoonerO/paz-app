@@ -12,6 +12,7 @@ import {
   Image,
   Pressable,
   Keyboard,
+  useWindowDimensions,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,6 +38,8 @@ const C = {
 export default function Login() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const logoSize = Math.min(screenW * 0.55, 240);
 
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -195,20 +198,23 @@ export default function Login() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : androidBehavior}
-      keyboardVerticalOffset={insets.top}
-    >
-      {/* Fondo */}
-      <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
-
-      {/* Tinte fijo que NO se mueve con el teclado */}
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      {/* Fondo fijo — fuera del KAV para que no se encoja con el teclado */}
+      <Image
+        source={require('../../assets/LoginSc.png')}
+        style={s.bgImg}
+        resizeMode="cover"
+      />
       <View pointerEvents="none" style={s.tint} />
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : androidBehavior}
+        keyboardVerticalOffset={insets.top}
+      >
       <KeyboardAwareScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[s.wrap, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[s.wrap, { paddingBottom: insets.bottom + 24, minHeight: screenH }]}
         enableOnAndroid
         extraScrollHeight={24}
         keyboardShouldPersistTaps="handled"
@@ -217,7 +223,7 @@ export default function Login() {
         <View style={s.logoFrame}>
           <Image
             source={require('../../assets/icon.png')}
-            style={s.logoImg}
+            style={{ width: logoSize, height: logoSize }}
             resizeMode="contain"
           />
         </View>
@@ -294,6 +300,7 @@ export default function Login() {
           </View>
         </View>
       </KeyboardAwareScrollView>
+      </KeyboardAvoidingView>
 
       <Modal
         visible={showSheet}
@@ -330,7 +337,7 @@ export default function Login() {
           </View>
         </View>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -477,7 +484,8 @@ const s = StyleSheet.create({
 
   bgImg: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 1,
+    width: '100%',
+    height: '100%',
   },
   sheetBtnPrimary: { backgroundColor: C.avatarBg, borderColor: C.avatarBorder },
   sheetBtnText: { fontWeight: '600', color: '#fff' },

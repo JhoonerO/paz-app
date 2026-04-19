@@ -15,6 +15,7 @@ import {
   ScrollView,
   Keyboard,
   TouchableWithoutFeedback,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -111,6 +112,8 @@ export default function Register() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
+  const { width: screenW } = useWindowDimensions();
+  const logoSize = Math.min(screenW * 0.45, 200);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -249,7 +252,7 @@ export default function Register() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} />
+      <Image source={require('../../assets/LoginSc.png')} style={s.bgImg} resizeMode="cover" />
       <View style={s.overlayFixed} pointerEvents="none" />
 
       <KeyboardAvoidingView
@@ -269,7 +272,7 @@ export default function Register() {
               <View style={s.logoFrame}>
                 <Image
                   source={require('../../assets/icon.png')}
-                  style={s.logoImg}
+                  style={{ width: logoSize, height: logoSize }}
                   resizeMode="contain"
                 />
               </View>
@@ -474,7 +477,7 @@ const s = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  bgImg: { ...StyleSheet.absoluteFillObject, opacity: 1 },
+  bgImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   logoFrame: {
     alignSelf: 'center',
     marginBottom: 1,

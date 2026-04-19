@@ -9,15 +9,16 @@ import {
   Modal,
   Pressable,
   FlatList,
-  Image,
   TextInput,
   ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
+import { clearBadgeCache } from '../../lib/badgeCache';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
 const KEY_SESSION = 'session_active';
@@ -146,6 +147,9 @@ export default function SettingsScreen() {
   const [restrictUnipaz, setRestrictUnipaz] = useState(true);
   const [savingRestrict, setSavingRestrict] = useState(false);
 
+  const [notifMuted, setNotifMuted] = useState(false);
+  const [savingNotif, setSavingNotif] = useState(false);
+
   const [stories, setStories] = useState<Story[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
@@ -215,13 +219,14 @@ export default function SettingsScreen() {
 
       const { data: prof, error } = await supabase
         .from('profiles')
-        .select('likes_public, is_admin')
+        .select('likes_public, is_admin, notifications_muted')
         .eq('id', uid)
-        .single<{ likes_public: boolean; is_admin: boolean }>();
+        .single<{ likes_public: boolean; is_admin: boolean; notifications_muted: boolean }>();
 
       if (!error && prof) {
         setShowLikes(Boolean(prof.likes_public));
         setIsAdmin(Boolean(prof.is_admin));
+        setNotifMuted(Boolean(prof.notifications_muted));
         await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(prof.likes_public));
       }
 
@@ -262,6 +267,17 @@ export default function SettingsScreen() {
       await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(prev));
     }
     setSavingLikes(false);
+  }
+
+  async function toggleNotifMuted(next: boolean) {
+    if (!userId || savingNotif) return;
+    setSavingNotif(true);
+    const prev = notifMuted;
+    setNotifMuted(next);
+    const { error } = await supabase
+      .from('profiles').update({ notifications_muted: next }).eq('id', userId);
+    if (error) setNotifMuted(prev);
+    setSavingNotif(false);
   }
 
   const loadStories = async () => {
@@ -366,6 +382,7 @@ export default function SettingsScreen() {
           await supabase.from('user_badges').insert(assignments);
         }
       }
+      clearBadgeCache();
       setShowBadgeModal(false);
       loadBadges();
       showNotification('¡Listo!', `Insignia "${badgeName}" creada`, 'success');
@@ -455,6 +472,7 @@ export default function SettingsScreen() {
           }
         }
       }
+      clearBadgeCache();
       setShowBadgeModal(false);
       setEditingBadge(false);
       loadBadges();
@@ -471,6 +489,7 @@ export default function SettingsScreen() {
     if (error) {
       showNotification('Error', 'No se pudo eliminar la insignia', 'error');
     } else {
+      clearBadgeCache();
       loadBadges();
       setShowBadgeInfoModal(false);
       showNotification('Eliminada', `Insignia "${badge.name}" eliminada`, 'success');
@@ -516,8 +535,14 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[s.content, { paddingBottom: insets.bottom > 0 ? insets.bottom + 24 : 28 }]} showsVerticalScrollIndicator={false}>
-        <SettingRow icon="notifications-outline" label="Notificaciones">
-          <Text style={s.comingSoon}>Próximamente</Text>
+        <SettingRow icon="notifications-outline" label="Silenciar notificaciones">
+          <Switch
+            value={notifMuted}
+            onValueChange={toggleNotifMuted}
+            disabled={savingNotif || !userId}
+            thumbColor={notifMuted ? '#6B7280' : '#818CF8'}
+            trackColor={{ true: '#1F2133', false: '#111827' }}
+          />
         </SettingRow>
 
         <SettingRow icon="heart-outline" label="Dejar ver tus Likes?">
@@ -779,7 +804,7 @@ export default function SettingsScreen() {
                   onPress={() => openEditModal(item)}
                 >
                   {item.cover_url ? (
-                    <Image source={{ uri: item.cover_url }} style={s.storyGridImage} />
+                    <Image source={{ uri: item.cover_url }} style={s.storyGridImage} contentFit="cover" />
                   ) : (
                     <View style={s.storyGridPlaceholder}>
                       <Text style={s.storyGridPlaceholderTitle} numberOfLines={2}>{item.title}</Text>

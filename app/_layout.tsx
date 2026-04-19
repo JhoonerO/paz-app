@@ -1,14 +1,18 @@
 //app/_layout.tsx
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
+import { Animated, Dimensions, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { supabase } from '../lib/supabase';
 
 SplashScreen.preventAutoHideAsync();
+
+const { width, height } = Dimensions.get('window');
 
 const AppTheme = {
   ...DarkTheme,
@@ -22,9 +26,33 @@ const AppTheme = {
   },
 };
 
+function AnimatedSplash({ onDone }: { onDone: () => void }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  const handleLoad = () => {
+    Animated.sequence([
+      Animated.delay(1600),
+      Animated.timing(opacity, { toValue: 0, duration: 700, useNativeDriver: true }),
+    ]).start(() => onDone());
+  };
+
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, { opacity, backgroundColor: '#0B0B0F' }]}>
+      <Image
+        source={require('../assets/SplashNuevo.png')}
+        style={{ width, height }}
+        contentFit="cover"
+        transition={400}
+        onLoad={handleLoad}
+      />
+    </Animated.View>
+  );
+}
+
 export default function RootLayout() {
   const router = useRouter();
   const [fontsLoaded] = useFonts({});
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
     const handleDeepLink = async (event: { url: string }) => {
@@ -77,18 +105,17 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: '#0B0B0F' },
         }}
       >
-        {/* Flujos principales */}
         <Stack.Screen name="(auth)" options={{ animation: 'fade_from_bottom' }} />
         <Stack.Screen name="(tabs)" options={{ animation: 'default' }} />
-
-        {/* Pantallas top-level reales */}
         <Stack.Screen name="search" options={{ animation: 'fade' }} />
         <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
-
-        {/* Carpetas con rutas internas (ej: story/[id], profile/[id], profile/settings) */}
         <Stack.Screen name="story" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
       </Stack>
+
+      {showSplash && (
+        <AnimatedSplash onDone={() => setShowSplash(false)} />
+      )}
     </ThemeProvider>
   );
 }

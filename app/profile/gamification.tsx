@@ -181,17 +181,18 @@ export default function GamificationScreen() {
       .map((r: any) => r.badges)
       .filter(Boolean);
 
-    // Añadir badges de scope all_users (si no ya en assigned)
+    const assignedIds = new Set(assigned.map((a: any) => a.id));
     (scopeRows ?? []).forEach((b: any) => {
-      if (b.scope === 'all_users' && !assigned.some((a) => a.id === b.id)) {
+      if (b.scope === 'all_users' && !assignedIds.has(b.id)) {
         assigned.push(b);
+        assignedIds.add(b.id);
       }
     });
-    // Scope admin_only solo si el usuario es admin
     if (prof?.is_admin) {
       (scopeRows ?? []).forEach((b: any) => {
-        if (b.scope === 'admin_only' && !assigned.some((a) => a.id === b.id)) {
+        if (b.scope === 'admin_only' && !assignedIds.has(b.id)) {
           assigned.push(b);
+          assignedIds.add(b.id);
         }
       });
     }

@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
@@ -14,6 +13,7 @@ import {
   Dimensions,
   FlatList,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -27,7 +27,8 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges } from '../../lib/badges';
-import { awardCommentXP, awardLikeXP, awardReadXP, getCurrentLevel, XP_PER_READ } from '../../lib/gamification';
+import { awardCommentXP, awardLikeXP, awardReadXP, getCurrentLevel, XP_PER_READ, XP_PER_LIKE, XP_PER_2_COMMENTS } from '../../lib/gamification';
+import { getScopeBadges } from '../../lib/badgeCache';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -94,7 +95,7 @@ const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: st
   mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
   leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
   urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
-  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#6B7280' },
 };
 
 function CategoryBadge({ category }: { category: StoryCategory }) {
@@ -254,12 +255,25 @@ export default function StoryDetail() {
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
 
-  const [showShare, setShowShare] = useState(false); // ← NUEVO
+  const [showShare, setShowShare] = useState(false);
+
+  // ── Sistema de reportes ───────────────────────────────────────────────────
+  const [showReportSheet, setShowReportSheet] = useState(false);
+  const [reportReason, setReportReason] = useState<string | null>(null);
+  const [reportCustom, setReportCustom] = useState('');
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [alreadyReported, setAlreadyReported] = useState(false);
 
   // ── Sistema de lectura ────────────────────────────────────────────────────
   const [xpToastVisible, setXpToastVisible] = useState(false);
   const readTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const xpAwardedRef = useRef(false);
+
+  const [likeXpToastVisible, setLikeXpToastVisible] = useState(false);
+  const likeXpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [commentXpToastVisible, setCommentXpToastVisible] = useState(false);
+  const commentXpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userCommentCountRef = useRef(0);
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -326,9 +340,17 @@ export default function StoryDetail() {
   // ── 1. Obtiene el usuario en paralelo ────────────────────────────────────
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      setUserId(user?.id || null);
+      const uid = user?.id || null;
+      setUserId(uid);
+      if (uid && storyId) {
+        supabase.from('story_reports')
+          .select('id', { count: 'exact', head: true })
+          .eq('story_id', storyId)
+          .eq('reporter_id', uid)
+          .then(({ count }) => { if ((count ?? 0) > 0) setAlreadyReported(true); });
+      }
     });
-  }, []);
+  }, [storyId]);
 
   // ── 2. Verifica admin cuando userId esté listo ───────────────────────────
   useEffect(() => {
@@ -477,35 +499,15 @@ export default function StoryDetail() {
       });
     }
 
-    // Cargar badges de scope (all_users, admin_only)
-    const { data: scopeBadges } = await supabase
-      .from('badges')
-      .select('id, name, description, color, icon, scope')
-      .order('name', { ascending: true });
-
-    (scopeBadges || []).forEach((badge: any) => {
-      if (badge.scope === 'all_users') {
-        userIds.forEach((uid) => {
-          const existing = badgesMap.get(uid) || [];
-          const yaExiste = existing.some((b: any) => b.id === badge.id);
-          if (!yaExiste) {
-            existing.push(badge);
-            badgesMap.set(uid, existing);
-          }
-        });
-      } else if (badge.scope === 'admin_only') {
-        userIds.forEach((uid) => {
-          const profile = profileMap.get(uid);
-          if (profile?.is_admin) {
-            const existing = badgesMap.get(uid) || [];
-            const yaExiste = existing.some((b: any) => b.id === badge.id);
-            if (!yaExiste) {
-              existing.push(badge);
-              badgesMap.set(uid, existing);
-            }
-          }
-        });
-      }
+    const scopeBadges = await getScopeBadges();
+    scopeBadges.forEach((badge: any) => {
+      userIds.forEach((uid) => {
+        const profile = profileMap.get(uid);
+        if (badge.scope === 'admin_only' && !profile?.is_admin) return;
+        const existing = badgesMap.get(uid) || [];
+        if (!existing.some((b: any) => b.id === badge.id)) existing.push(badge);
+        badgesMap.set(uid, existing);
+      });
     });
 
     const comments = rows.map((c: any) => {
@@ -570,33 +572,15 @@ export default function StoryDetail() {
         });
       }
 
-      // Cargar badges de scope
-      const { data: scopeBadges } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-
-      (scopeBadges || []).forEach((badge: any) => {
-        if (badge.scope === 'all_users') {
-          userIds.forEach((uid) => {
-            const existing = badgesMap.get(uid) || [];
-            if (!existing.some((b: any) => b.id === badge.id)) {
-              existing.push(badge);
-              badgesMap.set(uid, existing);
-            }
-          });
-        } else if (badge.scope === 'admin_only') {
-          userIds.forEach((uid) => {
-            const profile = profileMap.get(uid);
-            if (profile?.is_admin) {
-              const existing = badgesMap.get(uid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                badgesMap.set(uid, existing);
-              }
-            }
-          });
-        }
+      const scopeBadges2 = await getScopeBadges();
+      scopeBadges2.forEach((badge: any) => {
+        userIds.forEach((uid) => {
+          const profile = profileMap.get(uid);
+          if (badge.scope === 'admin_only' && !profile?.is_admin) return;
+          const existing = badgesMap.get(uid) || [];
+          if (!existing.some((b: any) => b.id === badge.id)) existing.push(badge);
+          badgesMap.set(uid, existing);
+        });
       });
 
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
@@ -657,11 +641,55 @@ export default function StoryDetail() {
     setLikeCount((prev) => (newLiked ? prev + 1 : prev - 1));
     try {
       if (liked) await unlike(storyId);
-      else { await like(storyId); awardLikeXP(userId).catch(() => {}); }
+      else {
+        await like(storyId);
+        awardLikeXP(userId).catch(() => {});
+        if (likeXpTimerRef.current) clearTimeout(likeXpTimerRef.current);
+        setLikeXpToastVisible(true);
+        likeXpTimerRef.current = setTimeout(() => setLikeXpToastVisible(false), 2500);
+      }
     } catch {
       setLiked(!newLiked);
       setLikeCount((prev) => (newLiked ? prev - 1 : prev + 1));
       showNotification('Error', 'No se pudo procesar el like', 'error');
+    }
+  }
+
+  async function submitReport() {
+    if (!userId) {
+      showNotification('Sesión requerida', 'Debes iniciar sesión para reportar.', 'info');
+      return;
+    }
+    if (!reportReason) return;
+    if (reportReason === 'otro' && !reportCustom.trim()) return;
+    setSubmittingReport(true);
+    try {
+      const { error: insertErr } = await supabase.from('story_reports').insert({
+        story_id: storyId,
+        reporter_id: userId,
+        reason: reportReason,
+        custom_reason: reportReason === 'otro' ? reportCustom.trim() : null,
+      });
+      if (insertErr) {
+        if (insertErr.code === '23505') {
+          setAlreadyReported(true);
+          setShowReportSheet(false);
+          showNotification('Ya reportaste', 'Ya enviaste un reporte para esta historia.', 'info');
+          return;
+        }
+        throw insertErr;
+      }
+
+      // El trigger notify_admins_on_report() en Supabase maneja las notificaciones a admins
+      setAlreadyReported(true);
+      setShowReportSheet(false);
+      setReportReason(null);
+      setReportCustom('');
+      showNotification('Reporte enviado', 'Gracias. Nuestro equipo revisará esta historia.', 'info');
+    } catch (e: any) {
+      showNotification('Error', e?.message ?? 'No se pudo enviar el reporte.', 'error');
+    } finally {
+      setSubmittingReport(false);
     }
   }
 
@@ -674,7 +702,15 @@ export default function StoryDetail() {
       await fetchComments();
       setCommentInput('');
       Keyboard.dismiss();
-      if (userId) awardCommentXP(userId).catch(() => {});
+      if (userId) {
+        userCommentCountRef.current += 1;
+        awardCommentXP(userId).catch(() => {});
+        if (userCommentCountRef.current % 2 === 0) {
+          if (commentXpTimerRef.current) clearTimeout(commentXpTimerRef.current);
+          setCommentXpToastVisible(true);
+          commentXpTimerRef.current = setTimeout(() => setCommentXpToastVisible(false), 2500);
+        }
+      }
     } catch {
       showNotification('Error', 'No se pudo guardar el comentario.', 'error');
     } finally {
@@ -728,8 +764,24 @@ export default function StoryDetail() {
             <Text style={s.headerTitle} numberOfLines={1}>{storyTitle}</Text>
           )}
 
-          {/* Botones derecha: compartir + eliminar */}
+          {/* Botones derecha: reportar + compartir + eliminar */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {!loading && userId && userId !== storyAuthorId && (
+              <TouchableOpacity
+                onPress={() => alreadyReported
+                  ? showNotification('Ya reportaste', 'Ya enviaste un reporte para esta historia.', 'info')
+                  : setShowReportSheet(true)
+                }
+                hitSlop={10}
+                style={s.headerIconBtn}
+              >
+                <Ionicons
+                  name={alreadyReported ? 'flag' : 'flag-outline'}
+                  size={20}
+                  color={alreadyReported ? '#ef4444' : '#9CA3AF'}
+                />
+              </TouchableOpacity>
+            )}
             {!loading && (
               <TouchableOpacity
                 onPress={() => setShowShare(true)}
@@ -1063,13 +1115,94 @@ export default function StoryDetail() {
           />
         )}
 
-        {/* ── XP Toast ────────────────────────────────────────────────────── */}
+        {/* ── XP Toast (lectura) ──────────────────────────────────────────── */}
         {xpToastVisible && (
           <View style={s.xpToast} pointerEvents="none">
-            <MaterialCommunityIcons name="star-four-points" size={16} color="#FFD700" />
+            <MaterialCommunityIcons name="book-open-variant" size={16} color="#38BDF8" />
             <Text style={s.xpToastText}>+{XP_PER_READ} XP · Historia leída</Text>
           </View>
         )}
+
+        {/* ── XP Toast (like) ─────────────────────────────────────────────── */}
+        {likeXpToastVisible && (
+          <View style={s.likeXpToast} pointerEvents="none">
+            <MaterialCommunityIcons name="heart-flash" size={16} color="#818CF8" />
+            <Text style={s.likeXpToastText}>+{XP_PER_LIKE} XP · Like dado</Text>
+          </View>
+        )}
+
+        {/* ── XP Toast (comentario) ───────────────────────────────────────── */}
+        {commentXpToastVisible && (
+          <View style={s.commentXpToast} pointerEvents="none">
+            <MaterialCommunityIcons name="message-badge" size={16} color="#34D399" />
+            <Text style={s.commentXpToastText}>+{XP_PER_2_COMMENTS} XP · Comentario</Text>
+          </View>
+        )}
+
+        {/* ── Modal reporte ────────────────────────────────────────────────── */}
+        <Modal
+          visible={showReportSheet}
+          transparent
+          animationType="slide"
+          onRequestClose={() => { setShowReportSheet(false); setReportReason(null); setReportCustom(''); }}
+        >
+          <View style={s.reportOverlay}>
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => { setShowReportSheet(false); setReportReason(null); setReportCustom(''); }} />
+            <View style={[s.reportSheet, { paddingBottom: insets.bottom + 12 }]}>
+              <View style={s.reportHandle} />
+              <Text style={s.reportTitle}>Reportar historia</Text>
+              <Text style={s.reportSubtitle}>¿Por qué quieres reportar esta historia?</Text>
+
+              {[
+                { key: 'spam',      label: 'Spam o contenido repetitivo', icon: 'alert-circle-outline' },
+                { key: 'acoso',     label: 'Acoso o conducta abusiva',    icon: 'person-remove-outline' },
+                { key: 'explicito', label: 'Contenido explícito',          icon: 'eye-off-outline' },
+                { key: 'plagio',    label: 'Plagio o contenido robado',   icon: 'copy-outline' },
+                { key: 'otro',      label: 'Otro motivo',                  icon: 'ellipsis-horizontal-outline' },
+              ].map(({ key, label, icon }) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[s.reportOption, reportReason === key && s.reportOptionSelected]}
+                  onPress={() => setReportReason(key)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={icon as any} size={20} color={reportReason === key ? '#F3F4F6' : '#9CA3AF'} />
+                  <Text style={[s.reportOptionText, reportReason === key && { color: '#F3F4F6' }]}>{label}</Text>
+                  {reportReason === key && (
+                    <Ionicons name="checkmark-circle" size={18} color="#6366F1" style={{ marginLeft: 'auto' }} />
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              {reportReason === 'otro' && (
+                <TextInput
+                  style={s.reportInput}
+                  placeholder="Describe el motivo..."
+                  placeholderTextColor="#6B7280"
+                  value={reportCustom}
+                  onChangeText={setReportCustom}
+                  multiline
+                  maxLength={300}
+                />
+              )}
+
+              <TouchableOpacity
+                style={[
+                  s.reportSubmitBtn,
+                  (!reportReason || (reportReason === 'otro' && !reportCustom.trim()) || submittingReport) && { opacity: 0.4 },
+                ]}
+                onPress={submitReport}
+                disabled={!reportReason || (reportReason === 'otro' && !reportCustom.trim()) || submittingReport}
+                activeOpacity={0.8}
+              >
+                {submittingReport
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={s.reportSubmitText}>Enviar reporte</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
       </SafeAreaView>
     </GestureHandlerRootView>
@@ -1139,7 +1272,7 @@ function ImageZoomModal({
           <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             <PinchGestureHandler onGestureEvent={onPinch} onEnded={onPinchEnd}>
               <Animated.View style={animatedStyle}>
-                <Image source={{ uri: imageUri }} style={s.zoomImage} resizeMode="contain" />
+                <Image source={{ uri: imageUri }} style={s.zoomImage} contentFit="contain" />
               </Animated.View>
             </PinchGestureHandler>
           </Animated.View>
@@ -1273,12 +1406,131 @@ const s = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#FFD700',
+    borderColor: '#38BDF8',
   },
   xpToastText: {
-    color: '#FFD700',
+    color: '#38BDF8',
     fontWeight: '700',
     fontSize: 14,
+  },
+  likeXpToast: {
+    position: 'absolute',
+    bottom: 130,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(20,20,30,0.92)',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#818CF8',
+  },
+  likeXpToastText: {
+    color: '#818CF8',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  commentXpToast: {
+    position: 'absolute',
+    bottom: 160,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(20,20,30,0.92)',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#34D399',
+  },
+  commentXpToastText: {
+    color: '#34D399',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  reportOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  reportSheet: {
+    backgroundColor: '#010102ff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: '#181818ff',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  reportHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#333',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  reportTitle: {
+    color: '#F3F4F6',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  reportSubtitle: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  reportOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1F1F27',
+    backgroundColor: '#0a0a0aff',
+    marginBottom: 8,
+  },
+  reportOptionSelected: {
+    borderColor: '#6366F1',
+    backgroundColor: '#1a1a2e',
+  },
+  reportOptionText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  reportInput: {
+    backgroundColor: '#0f0f0fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    color: '#F3F4F6',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+  },
+  reportSubmitBtn: {
+    backgroundColor: '#ef4444',
+    borderRadius: 12,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  reportSubmitText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
   zoomOverlay: {
     flex: 1,

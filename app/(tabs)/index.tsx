@@ -1,16 +1,16 @@
 // app/(tabs)/index.tsx
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
-  Image,
   TouchableOpacity,
   RefreshControl,
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Link, useFocusEffect, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -21,7 +21,8 @@ import { like, unlike } from '../../lib/likes';
 import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges } from '../../lib/badges';
-import { awardLikeXP, getCurrentLevel } from '../../lib/gamification';
+import { awardLikeXP, getCurrentLevel, XP_PER_LIKE } from '../../lib/gamification';
+import { getScopeBadges } from '../../lib/badgeCache';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -194,9 +195,17 @@ export default function Feed() {
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
+  const [likeXpToastVisible, setLikeXpToastVisible] = useState(false);
+  const likeXpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const PAGE_SIZE = 15;
   const isLoadedRef = useRef(false);
   const flatListRef = useRef<FlatList<DBStory>>(null);
+  const likedSetRef = useRef(likedSet);
+  likedSetRef.current = likedSet;
 
   type TabsNav = BottomTabNavigationProp<any>;
   const navigation = useNavigation<TabsNav>();
@@ -209,6 +218,66 @@ export default function Feed() {
       contentOpacity.value = withTiming(1, { duration: 360, easing: Easing.out(Easing.ease) });
     }
   }, [loading]);
+
+  async function normalizePage(rawStories: any[], uid: string | null, profRowsIn?: any[]) {
+    const authorIds = Array.from(new Set(rawStories.map((s) => s.author_id)));
+    const avatarMap = new Map<string, string | null>();
+    const displayNameMap = new Map<string, string | null>();
+    const isAdminMap = new Map<string, boolean>();
+    const badgesMap = new Map<string, any[]>();
+    const xpMap = new Map<string, number>();
+
+    const [{ data: profRows }, { data: xpRows }, { data: assignedBadges }, scopeBadges] = await Promise.all([
+      supabase.from('profiles').select('id, avatar_url, display_name, is_admin, created_at').in('id', authorIds),
+      supabase.from('user_gamification').select('user_id, xp').in('user_id', authorIds),
+      supabase.from('user_badges').select('user_id, badges ( id, name, description, color, icon, scope ), granted_at').in('user_id', authorIds).order('granted_at', { ascending: true }),
+      getScopeBadges(),
+    ]);
+
+    (profRows ?? []).forEach((p: any) => {
+      avatarMap.set(p.id, p.avatar_url ?? null);
+      displayNameMap.set(p.id, p.display_name ?? null);
+      isAdminMap.set(p.id, Boolean(p.is_admin));
+    });
+    (xpRows ?? []).forEach((r: any) => xpMap.set(r.user_id, r.xp ?? 0));
+    (assignedBadges ?? []).forEach((row: any) => {
+      if (row.badges) {
+        const arr = badgesMap.get(row.user_id) || [];
+        arr.push({ ...row.badges, _assigned_at: row.granted_at });
+        badgesMap.set(row.user_id, arr);
+      }
+    });
+    const adminScopeBadges = scopeBadges.filter((b: any) => b.scope === 'admin_only');
+    const allUsersScopeBadges = scopeBadges.filter((b: any) => b.scope === 'all_users');
+    authorIds.forEach((aid) => {
+      const existingIds = new Set((badgesMap.get(aid) || []).map((b: any) => b.id));
+      const arr = badgesMap.get(aid) || [];
+      allUsersScopeBadges.forEach((badge: any) => {
+        if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
+      });
+      if (isAdminMap.get(aid)) {
+        adminScopeBadges.forEach((badge: any) => {
+          if (!existingIds.has(badge.id)) { arr.push(badge); existingIds.add(badge.id); }
+        });
+      }
+      if (arr.length) badgesMap.set(aid, arr);
+    });
+
+    return rawStories.map((st) => {
+      const authorId = st.author_id;
+      return {
+        ...st,
+        profiles: [{
+          avatar_url: avatarMap.get(authorId) ?? null,
+          is_admin: isAdminMap.get(authorId) ?? false,
+          created_at: profRows?.find((p: any) => p.id === authorId)?.created_at ?? '',
+          display_name: displayNameMap.get(authorId) ?? null,
+          user_badges: badgesMap.get(authorId) || [],
+          user_gamification: [{ xp: xpMap.get(authorId) ?? 0 }],
+        }],
+      };
+    });
+  }
 
   async function loadFeed() {
     const { data: userData } = await supabase.auth.getUser();
@@ -226,13 +295,9 @@ export default function Feed() {
 
     const { data: rows, error } = await supabase
       .from('stories')
-      .select(`
-        id, title, body, cover_url, likes_count, comments_count,
-        created_at, author_id, category,
-        profiles!stories_author_id_fkey ( avatar_url, is_admin, created_at, display_name, user_gamification ( xp ) )
-      `)
+      .select(`id, title, body, cover_url, likes_count, comments_count, created_at, author_id, category`)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(PAGE_SIZE);
 
     if (error) {
       console.warn(error.message);
@@ -244,115 +309,17 @@ export default function Feed() {
     }
 
     const rawStories = (rows ?? []) as any[];
-    const authorIds = Array.from(new Set(rawStories.map((s) => s.author_id)));
-    const avatarMap = new Map<string, string | null>();
-    const displayNameMap = new Map<string, string | null>();
-    const badgesMap = new Map<string, any[]>();
+    if (rawStories.length < PAGE_SIZE) setHasMore(false);
+    else setHasMore(true);
 
-    // Cargar perfiles de autores
-    const xpMap = new Map<string, number>();
-    if (authorIds.length) {
-      const [{ data: profRows }, { data: xpRows }] = await Promise.all([
-        supabase.from('profiles').select('id, avatar_url, display_name, is_admin').in('id', authorIds),
-        supabase.from('user_gamification').select('user_id, xp').in('user_id', authorIds),
-      ]);
-      (profRows ?? []).forEach((p: any) => {
-        avatarMap.set(p.id, p.avatar_url ?? null);
-        displayNameMap.set(p.id, p.display_name ?? null);
-      });
-      (xpRows ?? []).forEach((r: any) => xpMap.set(r.user_id, r.xp ?? 0));
-
-      // Cargar TODAS las insignias asignadas desde user_badges
-      const { data: assignedBadges, error: badgeErr } = await supabase
-        .from('user_badges')
-        .select(`user_id, badges ( id, name, description, color, icon, scope ), granted_at`)
-        .in('user_id', authorIds)
-        .order('granted_at', { ascending: true });
-
-      if (!badgeErr && assignedBadges) {
-        assignedBadges.forEach((row: any) => {
-          const uid = row.user_id;
-          const badge = row.badges;
-          if (badge) {
-            const existing = badgesMap.get(uid) || [];
-            existing.push({ ...badge, _assigned_at: row.granted_at });
-            badgesMap.set(uid, existing);
-          }
-        });
-      }
-
-      // Cargar badges de scope (all_users, admin_only) que NO están en user_badges
-      const { data: scopeBadges } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-
-      (scopeBadges || []).forEach((badge: any) => {
-        if (badge.scope === 'all_users') {
-          authorIds.forEach((aid) => {
-            const existing = badgesMap.get(aid) || [];
-            const yaExiste = existing.some((b: any) => b.id === badge.id);
-            if (!yaExiste) {
-              existing.push(badge);
-              badgesMap.set(aid, existing);
-            }
-          });
-        } else if (badge.scope === 'admin_only') {
-          authorIds.forEach((aid) => {
-            const isAuthorAdmin = profRows?.find((p: any) => p.id === aid)?.is_admin;
-            if (isAuthorAdmin) {
-              const existing = badgesMap.get(aid) || [];
-              const yaExiste = existing.some((b: any) => b.id === badge.id);
-              if (!yaExiste) {
-                existing.push(badge);
-                badgesMap.set(aid, existing);
-              }
-            }
-          });
-        }
-      });
-    }
-
-    // Normalizar historias con insignias
-    const normalized: DBStory[] = rawStories.map((st) => {
-      const profileArr = toArray(st.profiles);
-      const profile0 = profileArr[0] ?? null;
-      const authorId = st.author_id;
-      const authorIsAdmin = profile0?.is_admin ?? false;
-      const avatar =
-        profile0?.avatar_url ??
-        (uid && authorId === uid ? userAvatar : null) ??
-        avatarMap.get(authorId) ?? null;
-      const display_name =
-        profile0?.display_name ?? displayNameMap.get(authorId) ?? null;
-
-      // Obtener TODAS las insignias de ESTE autor desde el mapa
-      const authorBadges = badgesMap.get(authorId) || [];
-
-      return {
-        ...st,
-        profiles: [{
-          avatar_url: avatar,
-          is_admin: authorIsAdmin,
-          created_at: profile0?.created_at ?? '',
-          display_name,
-          user_badges: authorBadges,
-          user_gamification: [{ xp: xpMap.get(authorId) ?? 0 }],
-        }],
-      };
-    });
-
-    setStories(normalized);
+    const normalized = await normalizePage(rawStories, uid);
+    setStories(normalized as DBStory[]);
 
     if (uid && normalized.length) {
-      const ids = normalized.map((r) => r.id);
-      const { data: likeRows, error: likeErr } = await supabase
+      const ids = normalized.map((r: any) => r.id);
+      const { data: likeRows } = await supabase
         .from('story_likes').select('story_id').eq('user_id', uid).in('story_id', ids);
-      if (!likeErr && likeRows) {
-        setLikedSet(new Set(likeRows.map((r) => r.story_id as string)));
-      } else {
-        setLikedSet(new Set());
-      }
+      setLikedSet(new Set((likeRows ?? []).map((r: any) => r.story_id as string)));
     } else {
       setLikedSet(new Set());
     }
@@ -361,15 +328,75 @@ export default function Feed() {
     setLoading(false);
   }
 
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const offset = stories.length;
+      const { data: rows } = await supabase
+        .from('stories')
+        .select(`id, title, body, cover_url, likes_count, comments_count, created_at, author_id, category`)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+
+      const rawStories = (rows ?? []) as any[];
+      if (rawStories.length < PAGE_SIZE) setHasMore(false);
+      if (!rawStories.length) return;
+
+      const normalized = await normalizePage(rawStories, userId);
+      setStories((prev) => [...prev, ...normalized as DBStory[]]);
+
+      if (userId && normalized.length) {
+        const ids = normalized.map((r: any) => r.id);
+        const { data: likeRows } = await supabase
+          .from('story_likes').select('story_id').eq('user_id', userId).in('story_id', ids);
+        if (likeRows) {
+          setLikedSet((prev) => new Set([...prev, ...likeRows.map((r: any) => r.story_id as string)]));
+        }
+      }
+    } catch {} finally {
+      setLoadingMore(false);
+    }
+  }
+
   useEffect(() => {
     if (!isLoadedRef.current) loadFeed();
   }, []);
 
   useFocusEffect(useCallback(() => {}, []));
 
+  const handleToggleLike = useCallback(async (id: string) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData.user?.id;
+    if (!uid) return;
+    const isLiked = likedSetRef.current.has(id);
+    try {
+      if (isLiked) {
+        await unlike(id);
+        setLikedSet((prev) => { const next = new Set(prev); next.delete(id); return next; });
+        setStories((prev) => prev.map((st) =>
+          st.id === id ? { ...st, likes_count: Math.max(0, (st.likes_count || 0) - 1) } : st
+        ));
+      } else {
+        await like(id);
+        setLikedSet((prev) => new Set(prev).add(id));
+        setStories((prev) => prev.map((st) =>
+          st.id === id ? { ...st, likes_count: (st.likes_count || 0) + 1 } : st
+        ));
+        awardLikeXP(uid).catch(() => {});
+        if (likeXpTimerRef.current) clearTimeout(likeXpTimerRef.current);
+        setLikeXpToastVisible(true);
+        likeXpTimerRef.current = setTimeout(() => setLikeXpToastVisible(false), 2500);
+      }
+    } catch (error) {
+      console.error('Error toggling like:', error);
+    }
+  }, []);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     isLoadedRef.current = false;
+    setHasMore(true);
     await loadFeed();
     setRefreshing(false);
   }, []);
@@ -396,6 +423,9 @@ export default function Feed() {
             keyExtractor={(it) => it.id}
             contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
             ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={loadingMore ? <ActivityIndicator color="#6366F1" style={{ marginVertical: 16 }} /> : null}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textPrimary} />
             }
@@ -404,30 +434,7 @@ export default function Feed() {
                 item={item}
                 liked={likedSet.has(item.id)}
                 userId={userId}
-                onToggleLike={async (id) => {
-                  const { data: userData } = await supabase.auth.getUser();
-                  const uid = userData.user?.id;
-                  if (!uid) return;
-                  const isLiked = likedSet.has(id);
-                  try {
-                    if (isLiked) {
-                      await unlike(id);
-                      setLikedSet((prev) => { const next = new Set(prev); next.delete(id); return next; });
-                      setStories((prev) => prev.map((st) =>
-                        st.id === id ? { ...st, likes_count: Math.max(0, (st.likes_count || 0) - 1) } : st
-                      ));
-                    } else {
-                      await like(id);
-                      setLikedSet((prev) => new Set(prev).add(id));
-                      setStories((prev) => prev.map((st) =>
-                        st.id === id ? { ...st, likes_count: (st.likes_count || 0) + 1 } : st
-                      ));
-                      awardLikeXP(uid).catch(() => {});
-                    }
-                  } catch (error) {
-                    console.error('Error toggling like:', error);
-                  }
-                }}
+                onToggleLike={handleToggleLike}
               />
             )}
             ListEmptyComponent={
@@ -439,12 +446,18 @@ export default function Feed() {
           />
         </Animated.View>
       )}
+      {likeXpToastVisible && (
+        <View style={s.likeXpToast} pointerEvents="none">
+          <MaterialCommunityIcons name="heart-flash" size={16} color="#818CF8" />
+          <Text style={s.likeXpToastText}>+{XP_PER_LIKE} XP · Like dado</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 // ─── StoryCard ────────────────────────────────────────────────────────────────
-function StoryCard({
+const StoryCard = memo(function StoryCard({
   item, liked, userId, onToggleLike,
 }: {
   item: DBStory;
@@ -519,32 +532,15 @@ function StoryCard({
         });
       }
 
-      // Cargar badges de scope
-      const { data: scopeBadges } = await supabase
-        .from('badges')
-        .select('id, name, description, color, icon, scope')
-        .order('name', { ascending: true });
-      (scopeBadges || []).forEach((badge: any) => {
-        if (badge.scope === 'all_users') {
-          userIds.forEach((uid) => {
-            const existing = badgesMap.get(uid) || [];
-            if (!existing.some((b: any) => b.id === badge.id)) {
-              existing.push(badge);
-              badgesMap.set(uid, existing);
-            }
-          });
-        } else if (badge.scope === 'admin_only') {
-          userIds.forEach((uid) => {
-            const profile = profileMap.get(uid);
-            if (profile?.is_admin) {
-              const existing = badgesMap.get(uid) || [];
-              if (!existing.some((b: any) => b.id === badge.id)) {
-                existing.push(badge);
-                badgesMap.set(uid, existing);
-              }
-            }
-          });
-        }
+      const scopeBadges = await getScopeBadges();
+      scopeBadges.forEach((badge: any) => {
+        userIds.forEach((uid) => {
+          const profile = profileMap.get(uid);
+          if (badge.scope === 'admin_only' && !profile?.is_admin) return;
+          const existing = badgesMap.get(uid) || [];
+          if (!existing.some((b: any) => b.id === badge.id)) existing.push(badge);
+          badgesMap.set(uid, existing);
+        });
       });
 
       const users: LikeUser[] = (likes ?? []).map((like: any) => ({
@@ -734,11 +730,35 @@ function StoryCard({
       )}
     </>
   );
-}
+}, (prev, next) =>
+  prev.item.id === next.item.id &&
+  prev.item.likes_count === next.item.likes_count &&
+  prev.liked === next.liked &&
+  prev.userId === next.userId
+);
 
 // ─── Estilos (sin cambios) ────────────────────────────────────────────────────
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
+  likeXpToast: {
+    position: 'absolute',
+    bottom: 80,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15,15,20,0.92)',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#818CF8',
+  },
+  likeXpToastText: {
+    color: '#818CF8',
+    fontWeight: '700',
+    fontSize: 13,
+  },
   card: {
     backgroundColor: C.card, borderRadius: 16, overflow: 'hidden',
     borderWidth: 1, borderColor: C.cardBorder, padding: 12,

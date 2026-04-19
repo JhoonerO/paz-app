@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, Image, FlatList,
+  View, Text, StyleSheet, FlatList,
   TouchableOpacity, Modal, Pressable, Share,
   ActivityIndicator, Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
@@ -255,7 +256,7 @@ const handleExternalShare = async () => {
             {/* Preview de la historia */}
             <View style={sh.storyPreview}>
               {story.cover_url ? (
-                <Image source={{ uri: story.cover_url }} style={sh.storyCover} resizeMode="cover" />
+                <Image source={{ uri: story.cover_url }} style={sh.storyCover} contentFit="cover" />
               ) : (
                 <View style={[sh.storyCover, sh.storyCoverPlaceholder]}>
                   <Ionicons name="book-outline" size={22} color="#4B5563" />
