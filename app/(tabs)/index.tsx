@@ -20,6 +20,8 @@ import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from '../profile/settings';
+import { getStaticBadges } from '../../lib/badges';
+import { awardLikeXP, getCurrentLevel } from '../../lib/gamification';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -48,6 +50,7 @@ type DBStory = {
     is_admin: boolean;
     created_at: string;
     display_name: string | null;
+    user_gamification?: { xp: number }[] | null;
     user_badges?: {
       badges: {
         id: string;
@@ -87,7 +90,7 @@ const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: st
   mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#A78BFA' },
   leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#6EE7B7' },
   urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#94A3B8' },
-  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#FCD34D' },
+  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#94A3B8' },
 };
 
 // Badge inline — solo ícono + label, sin colores de fondo llamativos
@@ -226,7 +229,7 @@ export default function Feed() {
       .select(`
         id, title, body, cover_url, likes_count, comments_count,
         created_at, author_id, category,
-        profiles!stories_author_id_fkey ( avatar_url, is_admin, created_at, display_name )
+        profiles!stories_author_id_fkey ( avatar_url, is_admin, created_at, display_name, user_gamification ( xp ) )
       `)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -247,13 +250,17 @@ export default function Feed() {
     const badgesMap = new Map<string, any[]>();
 
     // Cargar perfiles de autores
+    const xpMap = new Map<string, number>();
     if (authorIds.length) {
-      const { data: profRows } = await supabase
-        .from('profiles').select('id, avatar_url, display_name, is_admin').in('id', authorIds);
+      const [{ data: profRows }, { data: xpRows }] = await Promise.all([
+        supabase.from('profiles').select('id, avatar_url, display_name, is_admin').in('id', authorIds),
+        supabase.from('user_gamification').select('user_id, xp').in('user_id', authorIds),
+      ]);
       (profRows ?? []).forEach((p: any) => {
         avatarMap.set(p.id, p.avatar_url ?? null);
         displayNameMap.set(p.id, p.display_name ?? null);
       });
+      (xpRows ?? []).forEach((r: any) => xpMap.set(r.user_id, r.xp ?? 0));
 
       // Cargar TODAS las insignias asignadas desde user_badges
       const { data: assignedBadges, error: badgeErr } = await supabase
@@ -330,6 +337,7 @@ export default function Feed() {
           created_at: profile0?.created_at ?? '',
           display_name,
           user_badges: authorBadges,
+          user_gamification: [{ xp: xpMap.get(authorId) ?? 0 }],
         }],
       };
     });
@@ -414,6 +422,7 @@ export default function Feed() {
                       setStories((prev) => prev.map((st) =>
                         st.id === id ? { ...st, likes_count: (st.likes_count || 0) + 1 } : st
                       ));
+                      awardLikeXP(uid).catch(() => {});
                     }
                   } catch (error) {
                     console.error('Error toggling like:', error);
@@ -459,6 +468,7 @@ function StoryCard({
   const isAdmin = profileArr[0]?.is_admin ?? false;
   const createdAt = profileArr[0]?.created_at ?? '';
   const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
+  const authorXP = profileArr[0]?.user_gamification?.[0]?.xp ?? 0;
 
   const excerpt = useMemo(() => {
     const txt = (item.body || '').trim();
@@ -574,15 +584,10 @@ function StoryCard({
             )}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
               <Text style={s.author}>{author}</Text>
-              {/* Insignias dinámicas del usuario */}
-              {profileArr[0]?.user_badges?.map((badge: any, idx: number) => (
-                <BadgeIcon
-                  key={idx}
-                  iconKey={badge.icon || 'verified_MI_0'}
-                  size={16}
-                  color={badge.color || '#F3F4F6'}
-                />
+              {getStaticBadges(isAdmin, createdAt).map((b) => (
+                <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
               ))}
+              <MaterialCommunityIcons name={getCurrentLevel(authorXP).icon as any} size={14} color={getCurrentLevel(authorXP).color} />
             </View>
             {/* ── BADGE CATEGORÍA ── */}
             {item.category && <CategoryBadge category={item.category} />}
@@ -698,8 +703,8 @@ function StoryCard({
                         )}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                           <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                          {user.userBadges?.map((badge, idx) => (
-                            <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+                          {getStaticBadges(user.is_admin, user.created_at).map((b) => (
+                            <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
                           ))}
                         </View>
                         <Ionicons name="chevron-forward" size={20} color={C.textSecondary} style={{ marginLeft: 'auto' }} />

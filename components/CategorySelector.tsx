@@ -76,10 +76,10 @@ const CATEGORIES: {
     shortDesc: 'No encaja en las anteriores',
     longDesc:
       'Si tu historia tiene elementos fantásticos, de terror, ciencia ficción, creepypasta, cuento popular u otro género que no cabe exactamente en mito, leyenda o urbana, esta categoría es para ti.',
-    bg: '#1C0E00',
-    activeBg: '#3D1A00',
-    activeText: '#FCD34D',
-    border: '#D97706',
+    bg: '#111827',
+    activeBg: '#1E293B',
+    activeText: '#94A3B8',
+    border: '#475569',
   },
 ];
 

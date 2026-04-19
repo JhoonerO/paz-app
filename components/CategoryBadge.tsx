@@ -37,9 +37,9 @@ const CATEGORY_CONFIG: Record<
   otra: {
     label: 'Otra',
     emoji: '✨',
-    bg: '#3D1A00',
-    text: '#FCD34D',
-    border: '#D97706',
+    bg: '#1E293B',
+    text: '#94A3B8',
+    border: '#475569',
   },
 };
 

@@ -19,13 +19,15 @@ import { Ionicons } from '@expo/vector-icons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { like, unlike } from '../../lib/likes';
 import { addComment as addCommentService } from '../../lib/comments';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from '../profile/settings';
+import { getStaticBadges } from '../../lib/badges';
+import { awardCommentXP, awardLikeXP, awardReadXP, getCurrentLevel, XP_PER_READ } from '../../lib/gamification';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -61,6 +63,7 @@ type Comment = {
   createdAt: number;
   is_admin: boolean;
   created_at: string;
+  xp: number;
   userBadges?: {
     id: string;
     name: string;
@@ -230,6 +233,9 @@ export default function StoryDetail() {
   const [storyCategory, setStoryCategory] = useState<StoryCategory | null>(null);
   const [authorName, setAuthorName] = useState<string>('');
   const [authorAvatar, setAuthorAvatar] = useState<string | null>(null); // ← NUEVO
+  const [authorIsAdmin, setAuthorIsAdmin] = useState<boolean>(false);
+  const [authorCreatedAt, setAuthorCreatedAt] = useState<string>('');
+  const [authorXP, setAuthorXP] = useState<number>(0);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [storyAuthorId, setStoryAuthorId] = useState<string | null>(null);
@@ -249,6 +255,11 @@ export default function StoryDetail() {
   const [loadingLikes, setLoadingLikes] = useState(false);
 
   const [showShare, setShowShare] = useState(false); // ← NUEVO
+
+  // ── Sistema de lectura ────────────────────────────────────────────────────
+  const [xpToastVisible, setXpToastVisible] = useState(false);
+  const readTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const xpAwardedRef = useRef(false);
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -345,7 +356,7 @@ export default function StoryDetail() {
             comments_count,
             author_id,
             category,
-            profiles!stories_author_id_fkey ( display_name, avatar_url )
+            profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at, user_gamification ( xp ) )
           `)
           .eq('id', storyId)
           .maybeSingle();
@@ -360,8 +371,14 @@ export default function StoryDetail() {
           setStoryCover(data.cover_url || undefined);
           setStoryCategory(data.category || null);
           setAuthorName(profile?.display_name?.trim() || '');
-          setAuthorAvatar(profile?.avatar_url ?? null); // ← NUEVO
+          setAuthorAvatar(profile?.avatar_url ?? null);
+          setAuthorIsAdmin(Boolean(profile?.is_admin));
+          setAuthorCreatedAt(profile?.created_at ?? '');
           setLikeCount(data.likes_count || 0);
+          if (data.author_id) {
+            supabase.from('user_gamification').select('xp').eq('user_id', data.author_id).maybeSingle()
+              .then(({ data: gam }) => setAuthorXP(gam?.xp ?? 0));
+          }
           setInitialCommentCount(data.comments_count || 0);
           setStoryAuthorId(data.author_id || null);
         } else {
@@ -380,7 +397,38 @@ export default function StoryDetail() {
     loadStory();
   }, [storyId]);
 
-  // ── 4. Verifica si el usuario dio like ───────────────────────────────────
+  // ── 4. Timer de lectura ───────────────────────────────────────────────────
+  useEffect(() => {
+    // Solo arranca cuando ya cargó la historia y hay usuario logueado
+    if (loading || !userId || !storyBody || xpAwardedRef.current) return;
+    // No se premia si el autor lee su propia historia
+    if (storyAuthorId && userId === storyAuthorId) return;
+
+    // Calcular umbral: 50% del tiempo estimado, mínimo 20s, máximo 120s
+    const words = storyBody.trim().split(/\s+/).length;
+    const estimatedSeconds = (words / 200) * 60;
+    const threshold = Math.min(120, Math.max(5, estimatedSeconds * 0.5)) * 1000;
+
+    readTimerRef.current = setTimeout(async () => {
+      if (xpAwardedRef.current) return;
+      xpAwardedRef.current = true;
+      const awarded = await awardReadXP(userId, storyId);
+      if (awarded) setXpToastVisible(true);
+    }, threshold);
+
+    return () => {
+      if (readTimerRef.current) clearTimeout(readTimerRef.current);
+    };
+  }, [loading, userId, storyBody, storyAuthorId, storyId]);
+
+  // Ocultar el toast después de 3s
+  useEffect(() => {
+    if (!xpToastVisible) return;
+    const t = setTimeout(() => setXpToastVisible(false), 3000);
+    return () => clearTimeout(t);
+  }, [xpToastVisible]);
+
+  // ── 5. Verifica si el usuario dio like ───────────────────────────────────
   useEffect(() => {
     if (!userId) return;
     supabase
@@ -401,10 +449,11 @@ export default function StoryDetail() {
     if (!rows) { setCommentList([]); return; }
 
     const userIds = Array.from(new Set(rows.map((r: any) => r.user_id))).filter(Boolean);
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, display_name, avatar_url, is_admin, created_at')
-      .in('id', userIds);
+    const [{ data: profiles }, { data: xpRows }] = await Promise.all([
+      supabase.from('profiles').select('id, display_name, avatar_url, is_admin, created_at').in('id', userIds),
+      supabase.from('user_gamification').select('user_id, xp').in('user_id', userIds),
+    ]);
+    const commentXPMap = new Map((xpRows ?? []).map((r: any) => [r.user_id, r.xp ?? 0]));
 
     const profileMap = new Map(profiles?.map((p) => [p.id, p]) ?? []);
     const badgesMap = new Map<string, any[]>();
@@ -470,6 +519,7 @@ export default function StoryDetail() {
         createdAt: new Date(c.created_at).getTime(),
         is_admin: profile?.is_admin ?? false,
         created_at: profile?.created_at ?? '',
+        xp: commentXPMap.get(c.user_id) ?? 0,
         userBadges: badgesMap.get(c.user_id) || [],
       };
     });
@@ -607,7 +657,7 @@ export default function StoryDetail() {
     setLikeCount((prev) => (newLiked ? prev + 1 : prev - 1));
     try {
       if (liked) await unlike(storyId);
-      else await like(storyId);
+      else { await like(storyId); awardLikeXP(userId).catch(() => {}); }
     } catch {
       setLiked(!newLiked);
       setLikeCount((prev) => (newLiked ? prev - 1 : prev + 1));
@@ -624,6 +674,7 @@ export default function StoryDetail() {
       await fetchComments();
       setCommentInput('');
       Keyboard.dismiss();
+      if (userId) awardCommentXP(userId).catch(() => {});
     } catch {
       showNotification('Error', 'No se pudo guardar el comentario.', 'error');
     } finally {
@@ -726,7 +777,13 @@ export default function StoryDetail() {
                     <Text style={s.author}>— </Text>
                     <Link href={{ pathname: '/profile/[id]', params: { id: storyAuthorId || '' } }} asChild>
                       <TouchableOpacity activeOpacity={0.7}>
-                        <Text style={[s.author, s.authorLink]}>{authorName}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Text style={[s.author, s.authorLink]}>{authorName}</Text>
+                          {getStaticBadges(authorIsAdmin, authorCreatedAt).map((b) => (
+                            <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
+                          ))}
+                          <MaterialCommunityIcons name={getCurrentLevel(authorXP).icon as any} size={14} color={getCurrentLevel(authorXP).color} />
+                        </View>
                       </TouchableOpacity>
                     </Link>
                     {storyCategory && <CategoryBadge category={storyCategory} />}
@@ -797,14 +854,10 @@ export default function StoryDetail() {
                               <TouchableOpacity>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                   <Text style={s.commentAuthor}>{c.author}</Text>
-                                  {c.userBadges?.map((badge, idx) => (
-                                    <BadgeIcon
-                                      key={idx}
-                                      iconKey={badge.icon || 'verified_MI_0'}
-                                      size={12}
-                                      color={badge.color || '#F3F4F6'}
-                                    />
+                                  {getStaticBadges(c.is_admin, c.created_at).map((b) => (
+                                    <BadgeIcon key={b.id} iconKey={b.icon} size={12} color={b.color} />
                                   ))}
+                                  <MaterialCommunityIcons name={getCurrentLevel(c.xp).icon as any} size={12} color={getCurrentLevel(c.xp).color} />
                                 </View>
                               </TouchableOpacity>
                             </Link>
@@ -955,13 +1008,8 @@ export default function StoryDetail() {
                           )}
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                             <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                            {user.userBadges?.map((badge, idx) => (
-                              <BadgeIcon
-                                key={idx}
-                                iconKey={badge.icon || 'verified_MI_0'}
-                                size={14}
-                                color={badge.color || '#F3F4F6'}
-                              />
+                            {getStaticBadges(user.is_admin, user.created_at).map((b) => (
+                              <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
                             ))}
                           </View>
                           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
@@ -1013,6 +1061,14 @@ export default function StoryDetail() {
               author_avatar: authorAvatar,
             }}
           />
+        )}
+
+        {/* ── XP Toast ────────────────────────────────────────────────────── */}
+        {xpToastVisible && (
+          <View style={s.xpToast} pointerEvents="none">
+            <MaterialCommunityIcons name="star-four-points" size={16} color="#FFD700" />
+            <Text style={s.xpToastText}>+{XP_PER_READ} XP · Historia leída</Text>
+          </View>
         )}
 
       </SafeAreaView>
@@ -1204,6 +1260,25 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+  },
+  xpToast: {
+    position: 'absolute',
+    bottom: 100,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(20,20,30,0.92)',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#FFD700',
+  },
+  xpToastText: {
+    color: '#FFD700',
+    fontWeight: '700',
+    fontSize: 14,
   },
   zoomOverlay: {
     flex: 1,

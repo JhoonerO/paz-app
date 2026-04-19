@@ -9,24 +9,17 @@ import {
   Image,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BadgeIcon } from '../profile/settings';
+import { getStaticBadges } from '../../lib/badges';
+import { getCurrentLevel } from '../../lib/gamification';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  Easing,
-  FadeInUp,
-  FadeInDown,
-  Layout,
-} from 'react-native-reanimated';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,16 +40,8 @@ type DBStory = {
     avatar_url: string | null;
     is_admin: boolean;
     created_at: string;
-    user_badges?: {
-      badges: {
-        id: string;
-        name: string;
-        description: string;
-        color: string;
-        icon: string | null;
-        scope?: string;
-      };
-    }[];
+    user_gamification?: { xp: number }[] | null;
+    user_badges?: any[];
   }[] | null;
 };
 
@@ -66,176 +51,189 @@ type Profile = {
   avatar_url: string | null;
   created_at: string;
   is_admin: boolean;
+  user_gamification?: { xp: number }[] | null;
 };
+
+type ListItem =
+  | { kind: 'story_header'; label: string }
+  | { kind: 'story'; data: DBStory }
+  | { kind: 'profile_header' }
+  | { kind: 'profile'; data: Profile }
+  | { kind: 'discover_header' }
+  | { kind: 'empty' };
 
 // ─── Config de categorías ─────────────────────────────────────────────────────
 
-const CATEGORIES: {
-  key: StoryCategory | 'todas';
-  label: string;
-  icon: string;
-  color: string;
-  activeColor: string;
-}[] = [
-  { key: 'todas', label: 'Todas', icon: 'layers-outline', color: '#6B7280', activeColor: '#F3F4F6' },
-  { key: 'mito', label: 'Mito', icon: 'lightning-bolt', color: '#6B7280', activeColor: '#8B9DC3' },
-  { key: 'leyenda', label: 'Leyenda', icon: 'map-legend', color: '#6B7280', activeColor: '#A0B4B8' },
-  { key: 'urbana', label: 'Urbana', icon: 'city-variant-outline', color: '#6B7280', activeColor: '#9CA3AF' },
-  { key: 'otra', label: 'Otra', icon: 'help-rhombus-outline', color: '#6B7280', activeColor: '#B8A9C9' },
+const CATEGORIES: { key: StoryCategory | 'todas'; label: string; icon: string }[] = [
+  { key: 'todas',   label: 'Todas',   icon: 'layers-outline' },
+  { key: 'mito',    label: 'Mito',    icon: 'lightning-bolt' },
+  { key: 'leyenda', label: 'Leyenda', icon: 'map-legend' },
+  { key: 'urbana',  label: 'Urbana',  icon: 'city-variant-outline' },
+  { key: 'otra',    label: 'Otra',    icon: 'help-rhombus-outline' },
 ];
 
-const CAT_CONFIG: Record<StoryCategory, { label: string; icon: string; color: string }> = {
-  mito:    { label: 'Mito',    icon: 'lightning-bolt',      color: '#8B9DC3' },
-  leyenda: { label: 'Leyenda', icon: 'map-legend',          color: '#A0B4B8' },
-  urbana:  { label: 'Urbana',  icon: 'city-variant-outline', color: '#9CA3AF' },
-  otra:    { label: 'Otra',    icon: 'help-rhombus-outline', color: '#B8A9C9' },
+const CAT_COLOR: Record<StoryCategory, string> = {
+  mito:    '#8B9DC3',
+  leyenda: '#A0B4B8',
+  urbana:  '#9CA3AF',
+  otra:    '#B8A9C9',
 };
 
-// ─── Colores ──────────────────────────────────────────────────────────────────
-
-const C = {
-  bg: '#000000',
-  card: '#010102',
-  cardBorder: '#181818',
-  textPrimary: '#F3F4F6',
-  textSecondary: '#A1A1AA',
-  inputBg: '#0A0A0A',
-  categoryBg: '#0A0A0A',
-  categoryBorder: '#1F1F27',
+const CAT_ICON: Record<StoryCategory, string> = {
+  mito:    'lightning-bolt',
+  leyenda: 'map-legend',
+  urbana:  'city-variant-outline',
+  otra:    'help-rhombus-outline',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const toArray = (p: any) => (Array.isArray(p) ? p : p ? [p] : []);
 
+async function fetchXPForIds(ids: string[]): Promise<Map<string, number>> {
+  if (!ids.length) return new Map();
+  const { data } = await supabase.from('user_gamification').select('user_id, xp').in('user_id', ids);
+  return new Map((data ?? []).map((r: any) => [r.user_id, r.xp ?? 0]));
+}
+
+async function fetchBadgesForAuthors(authorIds: string[]): Promise<Map<string, any[]>> {
+  const map = new Map<string, any[]>();
+  if (!authorIds.length) return map;
+  const { data } = await supabase
+    .from('user_badges')
+    .select('user_id, badges ( id, name, description, color, icon, scope )')
+    .in('user_id', authorIds);
+  (data ?? []).forEach((ub: any) => {
+    const arr = map.get(ub.user_id) || [];
+    arr.push(ub.badges);
+    map.set(ub.user_id, arr);
+  });
+  return map;
+}
+
+function attachBadges(stories: any[], badgesMap: Map<string, any[]>, xpMap?: Map<string, number>): DBStory[] {
+  return stories.map((st: any) => {
+    const profileArr = toArray(st.profiles);
+    const profile0 = profileArr[0] ?? null;
+    const authorIsAdmin = profile0?.is_admin ?? false;
+    const raw = badgesMap.get(st.author_id) || [];
+    const user_badges = raw.filter((b: any) => {
+      const scope = b?.scope || 'custom';
+      if (scope === 'admin_only') return authorIsAdmin;
+      return true;
+    });
+    const xp = xpMap ? (xpMap.get(st.author_id) ?? 0) : (profile0?.user_gamification?.[0]?.xp ?? 0);
+    return { ...st, profiles: [{ ...profile0, user_badges, user_gamification: [{ xp }] }] };
+  });
+}
+
 // ─── Componentes ──────────────────────────────────────────────────────────────
 
-function CategoryBadge({ category }: { category: StoryCategory }) {
-  const cfg = CAT_CONFIG[category];
-  if (!cfg) return null;
-  return (
-    <View style={styles.badge}>
-      <MaterialCommunityIcons name={cfg.icon as any} size={10} color={cfg.color} />
-      <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
-    </View>
-  );
-}
-
-function StoryCard({
-  item,
-  index,
+function CategoryPill({
+  cat,
+  active,
   onPress,
 }: {
-  item: DBStory;
-  index: number;
-  onPress: (id: string) => void;
+  cat: typeof CATEGORIES[number];
+  active: boolean;
+  onPress: () => void;
 }) {
-  const hasCover = !!item.cover_url;
-  const profileArr = toArray(item.profiles);
-  const author = profileArr[0]?.display_name?.trim() || 'Autor';
-  const avatar = profileArr[0]?.avatar_url ?? null;
-  const isAdmin = profileArr[0]?.is_admin ?? false;
-  const createdAt = profileArr[0]?.created_at ?? '';
-  const isEarlyUser = new Date(createdAt) < new Date('2026-01-01');
-
-  const likesCount = item.likes_count ?? 0;
-  const commentsCount = item.comments_count ?? 0;
-
-  return (
-    <Animated.View
-      entering={FadeInUp.duration(400).delay(index * 60).springify()}
-      style={{ marginBottom: 12 }}
-    >
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => onPress(item.id)}
-        style={styles.card}
-      >
-        {/* Cover Image */}
-        {hasCover && (
-          <Image source={{ uri: item.cover_url! }} style={styles.cardCover} resizeMode="cover" />
-        )}
-
-        {/* Card Content */}
-        <View style={[styles.cardContent, !hasCover && styles.cardContentNoCover]}>
-          {/* Header: Avatar + Author + Category */}
-          <View style={styles.cardHeader}>
-            {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.cardAvatar} />
-            ) : (
-              <View style={[styles.cardAvatar, styles.cardAvatarPlaceholder]}>
-                <Ionicons name="person-outline" size={12} color="#9CA3AF" />
-              </View>
-            )}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={styles.cardAuthor} numberOfLines={1}>{author}</Text>
-              {/* Insignias dinámicas */}
-              {profileArr[0]?.user_badges
-                ?.filter((ub: any) => {
-                  const scope = ub.badges?.scope;
-                  if (scope === 'admin_only') return isAdmin;
-                  if (scope === 'all_users') return true;
-                  return scope === 'custom';
-                })
-                .map((ub: any, idx: number) => (
-                  <BadgeIcon
-                    key={idx}
-                    iconKey={ub.badges?.icon || 'verified_MI_0'}
-                    size={12}
-                    color={ub.badges?.color || '#F3F4F6'}
-                  />
-                ))}
-            </View>
-            {item.category && <CategoryBadge category={item.category} />}
-          </View>
-
-          {/* Title */}
-          <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-
-          {/* Excerpt */}
-          {item.body && (
-            <Text style={styles.cardExcerpt} numberOfLines={2}>
-              {item.body.substring(0, 120)}...
-            </Text>
-          )}
-
-          {/* Footer: Likes + Comments */}
-          <View style={styles.cardFooter}>
-            <View style={styles.metaItem}>
-              <Ionicons name="heart-outline" size={14} color="#6B7280" />
-              <Text style={styles.metaText}>{likesCount}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <Ionicons name="chatbox-outline" size={14} color="#6B7280" />
-              <Text style={styles.metaText}>{commentsCount}</Text>
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-function ProfileCard({
-  profile,
-  onPress,
-}: {
-  profile: Profile;
-  onPress: (id: string) => void;
-}) {
-  const isEarlyUser = new Date(profile.created_at) < new Date('2026-01-01');
-
   return (
     <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={() => onPress(profile.id)}
-      style={styles.profileCard}
+      onPress={onPress}
+      activeOpacity={0.7}
+      style={[styles.pill, active && styles.pillActive]}
     >
+      <MaterialCommunityIcons
+        name={cat.icon as any}
+        size={13}
+        color={active ? '#F3F4F6' : '#6B7280'}
+      />
+      <Text style={[styles.pillText, active && styles.pillTextActive]}>{cat.label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function StoryCard({ item, onPress }: { item: DBStory; onPress: () => void }) {
+  const profileArr = toArray(item.profiles);
+  const p = profileArr[0] ?? {};
+  const author = p.display_name?.trim() || 'Autor';
+  const avatar = p.avatar_url ?? null;
+  const isAdmin = p.is_admin ?? false;
+  const createdAt = p.created_at ?? '';
+  const authorXP = (p.user_gamification as any)?.[0]?.xp ?? 0;
+  const level = getCurrentLevel(authorXP);
+
+  return (
+    <TouchableOpacity activeOpacity={0.85} onPress={onPress} style={styles.card}>
+      {item.cover_url && (
+        <Image source={{ uri: item.cover_url }} style={styles.cardCover} resizeMode="cover" />
+      )}
+      <View style={styles.cardBody}>
+        {/* Author row */}
+        <View style={styles.cardAuthorRow}>
+          {avatar ? (
+            <Image source={{ uri: avatar }} style={styles.cardAvatar} />
+          ) : (
+            <View style={[styles.cardAvatar, styles.cardAvatarEmpty]}>
+              <Ionicons name="person-outline" size={11} color="#6B7280" />
+            </View>
+          )}
+          <Text style={styles.cardAuthorName} numberOfLines={1}>{author}</Text>
+          {getStaticBadges(isAdmin, createdAt).map((b) => (
+            <BadgeIcon key={b.id} iconKey={b.icon} size={12} color={b.color} />
+          ))}
+          <MaterialCommunityIcons name={level.icon as any} size={12} color={level.color} />
+          {item.category && (
+            <View style={[styles.catPill, { borderColor: CAT_COLOR[item.category] + '55' }]}>
+              <MaterialCommunityIcons
+                name={CAT_ICON[item.category] as any}
+                size={9}
+                color={CAT_COLOR[item.category]}
+              />
+              <Text style={[styles.catPillText, { color: CAT_COLOR[item.category] }]}>
+                {item.category.charAt(0).toUpperCase() + item.category.slice(1)}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Title */}
+        <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+
+        {/* Excerpt */}
+        {!!item.body && (
+          <Text style={styles.cardExcerpt} numberOfLines={2}>
+            {item.body.replace(/\n/g, ' ').substring(0, 110)}
+          </Text>
+        )}
+
+        {/* Footer */}
+        <View style={styles.cardFooter}>
+          <View style={styles.metaChip}>
+            <Ionicons name="heart-outline" size={13} color="#6B7280" />
+            <Text style={styles.metaText}>{item.likes_count ?? 0}</Text>
+          </View>
+          <View style={styles.metaChip}>
+            <Ionicons name="chatbox-outline" size={13} color="#6B7280" />
+            <Text style={styles.metaText}>{item.comments_count ?? 0}</Text>
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function ProfileCard({ profile, onPress }: { profile: Profile; onPress: () => void }) {
+  const xp = profile.user_gamification?.[0]?.xp ?? 0;
+  const level = getCurrentLevel(xp);
+  return (
+    <TouchableOpacity activeOpacity={0.85} onPress={onPress} style={styles.profileCard}>
       {profile.avatar_url ? (
         <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatar} />
       ) : (
-        <View style={[styles.profileAvatar, styles.profileAvatarPlaceholder]}>
-          <Ionicons name="person-outline" size={16} color="#9CA3AF" />
+        <View style={[styles.profileAvatar, styles.profileAvatarEmpty]}>
+          <Ionicons name="person-outline" size={18} color="#6B7280" />
         </View>
       )}
       <View style={{ flex: 1 }}>
@@ -243,9 +241,13 @@ function ProfileCard({
           <Text style={styles.profileName} numberOfLines={1}>
             {profile.display_name || 'Usuario'}
           </Text>
+          {getStaticBadges(profile.is_admin, profile.created_at).map((b) => (
+            <BadgeIcon key={b.id} iconKey={b.icon} size={13} color={b.color} />
+          ))}
+          <MaterialCommunityIcons name={level.icon as any} size={13} color={level.color} />
         </View>
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+      <Ionicons name="chevron-forward" size={16} color="#3A3A3A" />
     </TouchableOpacity>
   );
 }
@@ -254,247 +256,229 @@ function SkeletonCard() {
   return (
     <View style={styles.skeletonCard}>
       <View style={styles.skeletonCover} />
-      <View style={styles.skeletonContent}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <View style={styles.skeletonBody}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <View style={styles.skeletonAvatar} />
-          <View style={[styles.skeletonLine, { width: '40%' }]} />
+          <View style={[styles.skeletonLine, { width: '35%' }]} />
         </View>
-        <View style={[styles.skeletonLine, { width: '70%', marginBottom: 6 }]} />
-        <View style={[styles.skeletonLine, { width: '90%', marginBottom: 6 }]} />
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
-          <View style={[styles.skeletonLine, { width: 50, height: 14 }]} />
-          <View style={[styles.skeletonLine, { width: 50, height: 14 }]} />
-        </View>
+        <View style={[styles.skeletonLine, { width: '80%', height: 14, marginBottom: 8 }]} />
+        <View style={[styles.skeletonLine, { width: '95%', marginBottom: 6 }]} />
+        <View style={[styles.skeletonLine, { width: '70%' }]} />
       </View>
     </View>
   );
 }
 
-// ─── Pantalla Principal ───────────────────────────────────────────────────────
+// ─── Pantalla ─────────────────────────────────────────────────────────────────
 
 export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const inputRef = useRef<TextInput>(null);
+
   const [searchText, setSearchText] = useState('');
-  const [stories, setStories] = useState<DBStory[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeCategory, setActiveCategory] = useState<StoryCategory | 'todas'>('todas');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<StoryCategory | 'todas'>('todas');
-  const [showResults, setShowResults] = useState(false);
+  const [listItems, setListItems] = useState<ListItem[]>([]);
 
-  const flatListRef = useRef<FlatList>(null);
+  useEffect(() => { loadRandom(); }, []);
+  useEffect(() => { if (!searchText.trim()) loadRandom(); }, [activeCategory]);
 
-  // Cargar historias aleatorias al iniciar
-  useEffect(() => {
-    loadRandomStories();
-  }, []);
-
-  // Filtrar por categoría
-  useEffect(() => {
-    if (!searchText.trim()) {
-      loadRandomStories();
-    }
-  }, [activeCategory]);
-
-  async function loadRandomStories() {
+  async function loadRandom() {
     setLoading(true);
-    setShowResults(false);
-
     try {
-      let query = supabase
+      let q = supabase
         .from('stories')
         .select(`
           id, title, body, cover_url, likes_count, comments_count,
           created_at, author_id, category,
-          profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at )
+          profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at, user_gamification ( xp ) )
         `)
         .order('created_at', { ascending: false })
         .limit(50);
+      if (activeCategory !== 'todas') q = q.eq('category', activeCategory);
 
-      if (activeCategory !== 'todas') {
-        query = query.eq('category', activeCategory);
-      }
+      const { data } = await q;
+      const raw = data ?? [];
+      const authorIds = Array.from(new Set(raw.map((s: any) => s.author_id)));
+      const [badgesMap, xpMap] = await Promise.all([
+        fetchBadgesForAuthors(authorIds),
+        fetchXPForIds(authorIds),
+      ]);
+      const stories = attachBadges(raw, badgesMap, xpMap)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 20);
 
-      const { data, error } = await query;
-
-      if (error || !data) {
-        setStories([]);
-        setLoading(false);
-        setShowResults(true);
-        return;
-      }
-
-      // Cargar insignias de todos los autores
-      const authorIds = Array.from(new Set(data.map((s: any) => s.author_id)));
-      const badgesMap = new Map<string, any[]>();
-      if (authorIds.length) {
-        const { data: allBadges } = await supabase
-          .from('user_badges')
-          .select(`user_id, badges ( id, name, description, color, icon, scope )`)
-          .in('user_id', authorIds);
-        (allBadges ?? []).forEach((ub: any) => {
-          const arr = badgesMap.get(ub.user_id) || [];
-          arr.push(ub.badges);
-          badgesMap.set(ub.user_id, arr);
-        });
-      }
-
-      const storiesWithBadges: DBStory[] = data.map((st: any) => {
-        const profileArr = toArray(st.profiles);
-        const profile0 = profileArr[0] ?? null;
-        const authorId = st.author_id;
-        const authorIsAdmin = profile0?.is_admin ?? false;
-        const rawBadges = badgesMap.get(authorId) || [];
-        const user_badges = rawBadges.filter((b: any) => {
-          const scope = b.scope || 'custom';
-          if (scope === 'admin_only') return authorIsAdmin;
-          if (scope === 'all_users') return true;
-          return scope === 'custom';
-        });
-        return {
-          ...st,
-          profiles: [{
-            ...profile0,
-            user_badges,
-          }],
-        };
-      });
-
-      // Shuffle y tomar 15
-      const shuffled = storiesWithBadges.sort(() => 0.5 - Math.random()).slice(0, 15);
-      setStories(shuffled as unknown as DBStory[]);
-    } catch (e) {
-      console.error('Error loading stories:', e);
-      setStories([]);
+      const items: ListItem[] = [
+        { kind: 'discover_header' },
+        { kind: 'story_header', label: 'Historias' },
+        ...stories.map((s): ListItem => ({ kind: 'story', data: s })),
+      ];
+      if (!stories.length) items.push({ kind: 'empty' });
+      setListItems(items);
+    } catch {
+      setListItems([{ kind: 'discover_header' }, { kind: 'empty' }]);
     } finally {
       setLoading(false);
-      setShowResults(true);
     }
   }
 
   async function handleSearch() {
-    if (!searchText.trim()) {
-      loadRandomStories();
-      return;
-    }
+    const q = searchText.trim();
+    if (!q) { loadRandom(); return; }
 
+    Keyboard.dismiss();
     setSearching(true);
-    setShowResults(false);
-    const query = `%${searchText.toLowerCase()}%`;
+    const like = `%${q.toLowerCase()}%`;
 
     try {
-      // Buscar historias
-      let storiesQuery = supabase
+      let storiesQ = supabase
         .from('stories')
         .select(`
           id, title, body, cover_url, likes_count, comments_count,
           created_at, author_id, category,
-          profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at )
+          profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at, user_gamification ( xp ) )
         `)
-        .ilike('title', query)
+        .ilike('title', like)
         .limit(20);
+      if (activeCategory !== 'todas') storiesQ = storiesQ.eq('category', activeCategory);
 
-      if (activeCategory !== 'todas') {
-        storiesQuery = storiesQuery.eq('category', activeCategory);
+      const [{ data: storiesRaw }, { data: profilesRaw }] = await Promise.all([
+        storiesQ,
+        supabase
+          .from('profiles')
+          .select('id, display_name, avatar_url, created_at, is_admin')
+          .ilike('display_name', like)
+          .limit(10),
+      ]);
+
+      const authorIds = Array.from(new Set((storiesRaw ?? []).map((s: any) => s.author_id)));
+      const profileIds = (profilesRaw ?? []).map((p: any) => p.id);
+      const allIds = Array.from(new Set([...authorIds, ...profileIds]));
+
+      const [badgesMap, xpMap] = await Promise.all([
+        fetchBadgesForAuthors(authorIds),
+        fetchXPForIds(allIds),
+      ]);
+      const stories = attachBadges(storiesRaw ?? [], badgesMap, xpMap);
+      const profiles = (profilesRaw ?? []).map((p: any) => ({
+        ...p,
+        user_gamification: [{ xp: xpMap.get(p.id) ?? 0 }],
+      })) as Profile[];
+
+      const items: ListItem[] = [];
+
+      if (stories.length) {
+        items.push({ kind: 'story_header', label: `Historias (${stories.length})` });
+        stories.forEach((s) => items.push({ kind: 'story', data: s }));
+      }
+      if (profiles.length) {
+        items.push({ kind: 'profile_header' });
+        profiles.forEach((p) => items.push({ kind: 'profile', data: p }));
+      }
+      if (!stories.length && !profiles.length) {
+        items.push({ kind: 'empty' });
       }
 
-      const { data: storiesData } = await storiesQuery;
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('id, display_name, avatar_url, created_at, is_admin')
-        .ilike('display_name', query)
-        .limit(10);
-
-      // Cargar insignias de los autores de las historias encontradas
-      const authorIds = Array.from(new Set((storiesData ?? []).map((s: any) => s.author_id)));
-      const badgesMap = new Map<string, any[]>();
-      if (authorIds.length) {
-        const { data: allBadges } = await supabase
-          .from('user_badges')
-          .select(`user_id, badges ( id, name, description, color, icon, scope )`)
-          .in('user_id', authorIds);
-        (allBadges ?? []).forEach((ub: any) => {
-          const arr = badgesMap.get(ub.user_id) || [];
-          arr.push(ub.badges);
-          badgesMap.set(ub.user_id, arr);
-        });
-      }
-
-      const storiesWithBadges: DBStory[] = (storiesData ?? []).map((st: any) => {
-        const profileArr = toArray(st.profiles);
-        const profile0 = profileArr[0] ?? null;
-        const authorId = st.author_id;
-        const authorIsAdmin = profile0?.is_admin ?? false;
-        const rawBadges = badgesMap.get(authorId) || [];
-        const user_badges = rawBadges.filter((b: any) => {
-          const scope = b.scope || 'custom';
-          if (scope === 'admin_only') return authorIsAdmin;
-          if (scope === 'all_users') return true;
-          return scope === 'custom';
-        });
-        return {
-          ...st,
-          profiles: [{
-            ...profile0,
-            user_badges,
-          }],
-        };
-      });
-
-      setStories(storiesWithBadges as unknown as DBStory[]);
-      setProfiles((profilesData ?? []) as Profile[]);
-    } catch (e) {
-      console.error('Search error:', e);
+      setListItems(items);
+    } catch {
+      setListItems([{ kind: 'empty' }]);
     } finally {
       setSearching(false);
-      setShowResults(true);
     }
   }
 
-  const handleStoryPress = useCallback((storyId: string) => {
-    const story = stories.find(s => s.id === storyId);
-    if (!story) return;
-
-    const profileArr = toArray(story.profiles);
-    const author = profileArr[0]?.display_name?.trim() || 'Autor';
-
+  const goStory = useCallback((item: DBStory) => {
+    const profileArr = toArray(item.profiles);
     router.push({
       pathname: '/story/[id]',
       params: {
-        id: story.id,
-        title: story.title,
-        author,
-        body: story.body,
-        cover: story.cover_url ?? '',
-        likes: String(story.likes_count ?? 0),
-        comments: String(story.comments_count ?? 0),
+        id: item.id,
+        title: item.title,
+        author: profileArr[0]?.display_name?.trim() || 'Autor',
+        body: item.body,
+        cover: item.cover_url ?? '',
+        likes: String(item.likes_count ?? 0),
+        comments: String(item.comments_count ?? 0),
         source: 'search',
       },
     });
-  }, [stories, router]);
-
-  const handleProfilePress = useCallback((profileId: string) => {
-    router.push({
-      pathname: '/profile/[id]',
-      params: { id: profileId },
-    });
   }, [router]);
 
-  const hasResults = searchText.trim().length > 0 && (stories.length > 0 || profiles.length > 0);
-  const isEmpty = !searching && searchText.trim().length > 0 && stories.length === 0 && profiles.length === 0;
+  const goProfile = useCallback((id: string) => {
+    router.push({ pathname: '/profile/[id]', params: { id } });
+  }, [router]);
+
+  const renderItem = useCallback(({ item }: { item: ListItem }) => {
+    switch (item.kind) {
+      case 'discover_header':
+        return (
+          <View style={styles.discoverHeader}>
+            <Text style={styles.discoverTitle}>Descubrir</Text>
+            <Text style={styles.discoverSub}>Historias de mitos, leyendas y más</Text>
+          </View>
+        );
+      case 'story_header':
+        return (
+          <View style={styles.sectionHeader}>
+            <Ionicons name="book-outline" size={15} color="#F3F4F6" />
+            <Text style={styles.sectionTitle}>{item.label}</Text>
+          </View>
+        );
+      case 'profile_header':
+        return (
+          <View style={[styles.sectionHeader, { marginTop: 8 }]}>
+            <Ionicons name="people-outline" size={15} color="#F3F4F6" />
+            <Text style={styles.sectionTitle}>Perfiles</Text>
+          </View>
+        );
+      case 'story':
+        return (
+          <View style={{ marginBottom: 10 }}>
+            <StoryCard item={item.data} onPress={() => goStory(item.data)} />
+          </View>
+        );
+      case 'profile':
+        return (
+          <View style={{ marginBottom: 8 }}>
+            <ProfileCard profile={item.data} onPress={() => goProfile(item.data.id)} />
+          </View>
+        );
+      case 'empty':
+        return (
+          <View style={styles.emptyState}>
+            <Ionicons name="search-outline" size={56} color="#2A2A2A" />
+            <Text style={styles.emptyTitle}>
+              {searchText.trim() ? 'Sin resultados' : 'Sin historias'}
+            </Text>
+            {!!searchText.trim() && (
+              <Text style={styles.emptySub}>No encontramos nada para "{searchText}"</Text>
+            )}
+          </View>
+        );
+      default:
+        return null;
+    }
+  }, [goStory, goProfile, searchText]);
+
+  const keyExtractor = useCallback((item: ListItem, index: number) => {
+    if (item.kind === 'story') return `story-${item.data.id}`;
+    if (item.kind === 'profile') return `profile-${item.data.id}`;
+    return `${item.kind}-${index}`;
+  }, []);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* ── Header con buscador ───────────────────────────────────────────── */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={10} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#F3F4F6" />
         </TouchableOpacity>
-
         <View style={styles.searchBox}>
-          <Ionicons name="search-outline" size={18} color="#6B7280" style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={17} color="#6B7280" style={{ marginRight: 8 }} />
           <TextInput
+            ref={inputRef}
             style={styles.input}
             placeholder="Buscar historias, autores..."
             placeholderTextColor="#6B7280"
@@ -505,134 +489,53 @@ export default function SearchScreen() {
             autoFocus
           />
           {searchText.length > 0 && (
-            <TouchableOpacity onPress={() => { setSearchText(''); }} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color="#6B7280" />
+            <TouchableOpacity
+              onPress={() => { setSearchText(''); loadRandom(); }}
+              hitSlop={8}
+            >
+              <Ionicons name="close-circle" size={17} color="#6B7280" />
             </TouchableOpacity>
           )}
         </View>
+        {searchText.length > 0 && (
+          <TouchableOpacity onPress={handleSearch} style={styles.searchBtn} activeOpacity={0.8}>
+            {searching
+              ? <ActivityIndicator size="small" color="#F3F4F6" />
+              : <Text style={styles.searchBtnText}>Buscar</Text>
+            }
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* ── Filtros de categorías ─────────────────────────────────────────── */}
-      <View style={styles.categoriesSection}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesScroll}
-        >
-          {CATEGORIES.map((cat) => {
-            const isActive = activeCategory === cat.key;
-            return (
-              <TouchableOpacity
-                key={cat.key}
-                onPress={() => setActiveCategory(cat.key)}
-                style={[
-                  styles.categoryBtn,
-                  isActive && styles.categoryBtnActive,
-                ]}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons
-                  name={cat.icon as any}
-                  size={14}
-                  color={isActive ? cat.activeColor : '#6B7280'}
-                />
-                <Text
-                  style={[
-                    styles.categoryText,
-                    isActive && { color: cat.activeColor },
-                  ]}
-                >
-                  {cat.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+      {/* Categorías */}
+      <View style={styles.categoriesWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesScroll}>
+          {CATEGORIES.map((cat) => (
+            <CategoryPill
+              key={cat.key}
+              cat={cat}
+              active={activeCategory === cat.key}
+              onPress={() => setActiveCategory(cat.key)}
+            />
+          ))}
         </ScrollView>
       </View>
 
-      {/* ── Contenido principal ───────────────────────────────────────────── */}
-      {(loading || searching) && (
-        <View style={styles.content}>
-          <View style={{ gap: 12 }}>
-            {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
-          </View>
+      {/* Lista */}
+      {loading ? (
+        <View style={styles.skeletonWrap}>
+          {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
         </View>
-      )}
-
-      {!loading && !searching && showResults && (
+      ) : (
         <FlatList
-          ref={flatListRef}
-          data={
-            searchText.trim().length > 0
-              ? [
-                  ...(stories.length > 0 ? [{ type: 'stories' }] : []),
-                  ...(profiles.length > 0 ? [{ type: 'profiles' }] : []),
-                ]
-              : [{ type: 'stories' }]
-          }
-          keyExtractor={(item) => item.type}
+          data={listItems}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            searchText.trim().length === 0 ? (
-              <View style={styles.discoverHeader}>
-                <Text style={styles.discoverTitle}>Descubrir</Text>
-              </View>
-            ) : null
-          }
-          renderItem={({ item }) => {
-            if (item.type === 'stories') {
-              return (
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Ionicons name="book-outline" size={16} color="#F3F4F6" />
-                    <Text style={styles.sectionTitle}>
-                      {searchText.trim().length > 0 ? 'Historias encontradas' : 'Historias'}
-                    </Text>
-                  </View>
-                  {stories.map((story, idx) => (
-                    <StoryCard
-                      key={story.id}
-                      item={story}
-                      index={idx}
-                      onPress={handleStoryPress}
-                    />
-                  ))}
-                </View>
-              );
-            }
-
-            if (item.type === 'profiles') {
-              return (
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Ionicons name="people-outline" size={16} color="#F3F4F6" />
-                    <Text style={styles.sectionTitle}>Perfiles encontrados</Text>
-                  </View>
-                  {profiles.map((profile) => (
-                    <ProfileCard
-                      key={profile.id}
-                      profile={profile}
-                      onPress={handleProfilePress}
-                    />
-                  ))}
-                </View>
-              );
-            }
-
-            return null;
-          }}
-          ListEmptyComponent={
-            isEmpty ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={64} color="#3F3F46" />
-                <Text style={styles.emptyTitle}>Sin resultados</Text>
-                <Text style={styles.emptySub}>
-                  {`No encontramos nada para "${searchText}"`}
-                </Text>
-              </View>
-            ) : null
-          }
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          removeClippedSubviews={false}
         />
       )}
     </View>
@@ -642,285 +545,177 @@ export default function SearchScreen() {
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: C.bg },
+  screen: { flex: 1, backgroundColor: '#000' },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: C.bg,
   },
   backBtn: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
   searchBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.inputBg,
+    backgroundColor: '#0A0A0A',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: C.cardBorder,
+    borderColor: '#1A1A1A',
     paddingHorizontal: 12,
-    height: 44,
+    height: 42,
   },
-  searchIcon: { marginRight: 8 },
-  input: {
-    flex: 1,
-    color: C.textPrimary,
-    fontSize: 15,
-    maxHeight: 44,
+  input: { flex: 1, color: '#F3F4F6', fontSize: 15 },
+  searchBtn: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    height: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
   },
+  searchBtnText: { color: '#F3F4F6', fontSize: 13, fontWeight: '600' },
 
-  // Categorías
-  categoriesSection: {
-    paddingVertical: 12,
+  categoriesWrap: {
     borderBottomWidth: 1,
-    borderBottomColor: '#111',
+    borderBottomColor: '#0F0F0F',
+    paddingBottom: 10,
   },
-  categoriesScroll: {
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  categoryBtn: {
+  categoriesScroll: { paddingHorizontal: 12, gap: 8, paddingVertical: 4 },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: C.categoryBg,
+    backgroundColor: '#0A0A0A',
     borderWidth: 1,
-    borderColor: C.categoryBorder,
+    borderColor: '#1A1A1A',
   },
-  categoryBtnActive: {
-    borderColor: '#2C2C33',
-    backgroundColor: '#111111',
-  },
-  categoryText: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  pillActive: { borderColor: '#2A2A2A', backgroundColor: '#141414' },
+  pillText: { color: '#6B7280', fontSize: 13, fontWeight: '600' },
+  pillTextActive: { color: '#F3F4F6' },
 
-  // Content
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
+  skeletonWrap: { paddingHorizontal: 14, paddingTop: 14, gap: 10 },
+  listContent: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 40 },
 
-  // Discover Header
-  discoverHeader: {
-    marginBottom: 20,
-    gap: 6,
-  },
-  discoverTitle: {
-    color: C.textPrimary,
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  discoverSub: {
-    color: C.textSecondary,
-    fontSize: 14,
-  },
+  discoverHeader: { marginBottom: 16 },
+  discoverTitle: { color: '#F3F4F6', fontSize: 26, fontWeight: '800', letterSpacing: 0.2 },
+  discoverSub: { color: '#3A3A3A', fontSize: 13, marginTop: 3 },
 
-  // Secciones
-  section: {
-    marginBottom: 24,
-  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 12,
+    marginBottom: 10,
+    marginTop: 4,
   },
-  sectionTitle: {
-    color: C.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  sectionCount: {
-    color: C.textSecondary,
-    fontSize: 13,
-  },
+  sectionTitle: { color: '#F3F4F6', fontSize: 15, fontWeight: '700' },
 
-  // Story Card
+  // Story card
   card: {
-    backgroundColor: C.card,
+    backgroundColor: '#080808',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: C.cardBorder,
+    borderColor: '#181818',
     overflow: 'hidden',
   },
-  cardCover: {
-    width: '100%',
-    height: 160,
-  },
-  cardContent: {
-    padding: 12,
-    gap: 8,
-  },
-  cardContentNoCover: {
-    paddingTop: 10,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#0F1016',
-    borderWidth: 1,
-    borderColor: '#1F1F27',
-  },
-  cardAvatarPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardAuthor: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    fontWeight: '600',
-    flex: 1,
-  },
-  cardTitle: {
-    color: C.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
-  },
-  cardExcerpt: {
-    color: '#9CA3AF',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#111',
-  },
-  metaItem: {
+  cardCover: { width: '100%', height: 150 },
+  cardBody: { padding: 12, gap: 6 },
+  cardAuthorRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexWrap: 'nowrap',
   },
-  metaText: {
+  cardAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#0F1016',
+    borderWidth: 1,
+    borderColor: '#1F1F27',
+    marginRight: 2,
+  },
+  cardAvatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  cardAuthorName: {
     color: '#6B7280',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
+    flexShrink: 1,
+    maxWidth: 90,
   },
-
-  // Category Badge
-  badge: {
+  catPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 2,
-    borderRadius: 5,
-    backgroundColor: '#0A0A0A',
+    borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#1F1F27',
+    backgroundColor: '#050505',
+    marginLeft: 2,
   },
-  badgeText: {
-    fontSize: 9,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+  catPillText: { fontSize: 9, fontWeight: '600' },
+  cardTitle: { color: '#F3F4F6', fontSize: 15, fontWeight: '700', lineHeight: 21 },
+  cardExcerpt: { color: '#5A5A5A', fontSize: 12, lineHeight: 17 },
+  cardFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#0F0F0F',
+    marginTop: 2,
   },
+  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  metaText: { color: '#4A4A4A', fontSize: 12, fontWeight: '600' },
 
-  // Profile Card
+  // Profile card
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.card,
+    backgroundColor: '#080808',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: C.cardBorder,
+    borderColor: '#181818',
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 10,
-    marginBottom: 8,
   },
   profileAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: '#0F1016',
     borderWidth: 1,
     borderColor: '#1F1F27',
   },
-  profileAvatarPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileName: {
-    color: C.textPrimary,
-    fontWeight: '600',
-    fontSize: 14,
-    flex: 1,
-  },
+  profileAvatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  profileName: { color: '#F3F4F6', fontWeight: '600', fontSize: 14, flexShrink: 1 },
 
   // Skeleton
   skeletonCard: {
-    backgroundColor: C.card,
+    backgroundColor: '#080808',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: C.cardBorder,
-    marginBottom: 12,
+    borderColor: '#181818',
     overflow: 'hidden',
   },
-  skeletonCover: {
-    width: '100%',
-    height: 160,
-    backgroundColor: '#111',
-  },
-  skeletonContent: {
-    padding: 12,
-    gap: 6,
-  },
-  skeletonAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#111',
-  },
-  skeletonLine: {
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#111',
-  },
+  skeletonCover: { width: '100%', height: 150, backgroundColor: '#111' },
+  skeletonBody: { padding: 12 },
+  skeletonAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#1A1A1A' },
+  skeletonLine: { height: 11, borderRadius: 5, backgroundColor: '#111' },
 
-  // Empty State
+  // Empty
   emptyState: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 80,
-    gap: 12,
+    gap: 10,
   },
-  emptyTitle: {
-    color: C.textPrimary,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  emptySub: {
-    color: C.textSecondary,
-    fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
+  emptyTitle: { color: '#3A3A3A', fontSize: 18, fontWeight: '700' },
+  emptySub: { color: '#2A2A2A', fontSize: 13, textAlign: 'center', paddingHorizontal: 32 },
 });

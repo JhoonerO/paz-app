@@ -9,7 +9,10 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BadgeIcon } from '../profile/settings';
+import { getStaticBadges } from '../../lib/badges';
+import { getCurrentLevel } from '../../lib/gamification';
 
 type ConversationItem = {
   id: string;
@@ -21,6 +24,7 @@ type ConversationItem = {
   unreadCount: number;
   isAdmin: boolean;
   isEarly: boolean;
+  otherXP: number;
   otherBadges?: any[];
 };
 
@@ -101,14 +105,15 @@ export default function MessagesScreen() {
       c.user1_id === uid ? c.user2_id : c.user1_id
     );
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, display_name, avatar_url, is_admin, created_at')
-      .in('id', otherIds);
-
+    const [{ data: profiles }, { data: xpRows }] = await Promise.all([
+      supabase.from('profiles').select('id, display_name, avatar_url, is_admin, created_at').in('id', otherIds),
+      supabase.from('user_gamification').select('user_id, xp').in('user_id', otherIds),
+    ]);
 
     const profileMap = new Map<string, any>();
     (profiles ?? []).forEach((p: any) => profileMap.set(p.id, p));
+    const xpMap = new Map<string, number>();
+    (xpRows ?? []).forEach((r: any) => xpMap.set(r.user_id, r.xp ?? 0));
 
     const unreadResults = await Promise.all(
       data.map((c: any) =>
@@ -137,6 +142,7 @@ export default function MessagesScreen() {
       unreadCount: unreadResults[i].count ?? 0,
       isAdmin: profile?.is_admin ?? false,
       isEarly,
+      otherXP: xpMap.get(otherId) ?? 0,
       otherBadges: [],
     };
   });
@@ -328,9 +334,10 @@ export default function MessagesScreen() {
               <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={s.name} numberOfLines={1}>{item.otherName}</Text>
-              {item.otherBadges?.map((badge: any, idx: number) => (
-                <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+              {getStaticBadges(item.isAdmin, item.isEarly ? '2025-01-01' : '2026-06-01').map((b) => (
+                <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
               ))}
+              <MaterialCommunityIcons name={getCurrentLevel(item.otherXP).icon as any} size={14} color={getCurrentLevel(item.otherXP).color} />
             </View>
             <Text style={s.preview} numberOfLines={1}>
               {item.lastMessage ?? 'Sin mensajes aún'}

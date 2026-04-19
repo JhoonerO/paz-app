@@ -22,6 +22,8 @@ import { supabase } from '../../lib/supabase';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from './settings';
+import { getStaticBadges, type StaticBadge } from '../../lib/badges';
+import { getCurrentLevel } from '../../lib/gamification';
 import {
   GestureHandlerRootView,
   PinchGestureHandler,
@@ -54,6 +56,9 @@ type DBStory = {
   profiles: {
     display_name: string | null;
     avatar_url: string | null;
+    is_admin?: boolean;
+    created_at?: string;
+    user_gamification?: { xp: number }[] | null;
     user_badges?: any[];
   }[] | null;
   liked_at?: string;
@@ -221,6 +226,7 @@ export default function PublicProfile() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false); // Del perfil visitado
   const [isViewerAdmin, setIsViewerAdmin] = useState<boolean>(false); // Del visitante
   const [createdAt, setCreatedAt] = useState<string>('');
+  const [visitedXP, setVisitedXP] = useState<number>(0);
 
   const [tab, setTab] = useState<'mine' | 'likes'>('mine');
   const [stories, setStories] = useState<DBStory[]>([]);
@@ -229,6 +235,8 @@ export default function PublicProfile() {
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
   const [showAvatarZoom, setShowAvatarZoom] = useState(false);
+  const [selectedStaticBadge, setSelectedStaticBadge] = useState<StaticBadge | null>(null);
+  const [showStaticBadgeInfo, setShowStaticBadgeInfo] = useState(false);
   const [userBadges, setUserBadges] = useState<ProfileBadge[]>([]);
   const [userBadgeIds, setUserBadgeIds] = useState<string[]>([]); // IDs de las asignadas
   const [selectedUserBadge, setSelectedUserBadge] = useState<ProfileBadge & { userBadgeId?: string } | null>(null);
@@ -272,6 +280,8 @@ export default function PublicProfile() {
       setIsAdmin(prof?.is_admin ?? false);
       const profileIsAdmin = prof?.is_admin ?? false;
       setCreatedAt(prof?.created_at ?? '');
+      supabase.from('user_gamification').select('xp').eq('user_id', profileId).maybeSingle()
+        .then(({ data: g }) => { if (g) setVisitedXP(g.xp ?? 0); });
 
       // Cargar TODAS las insignias (para admin pueda regalar)
       const { data: allBadgeRows, error: allBadgeErr } = await supabase
@@ -299,16 +309,20 @@ export default function PublicProfile() {
         setUserBadgeIds([]);
       }
 
-      const { data: mine, error: mineErr } = await supabase
-        .from('stories')
-        .select(`
-          id, title, body, cover_url, likes_count, comments_count,
-          created_at, author_id, category,
-          profiles!stories_author_id_fkey ( display_name, avatar_url )
-        `)
-        .eq('author_id', profileId)
-        .order('created_at', { ascending: false });
+      const [{ data: mine, error: mineErr }, { data: profileXPData }] = await Promise.all([
+        supabase
+          .from('stories')
+          .select(`
+            id, title, body, cover_url, likes_count, comments_count,
+            created_at, author_id, category,
+            profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at )
+          `)
+          .eq('author_id', profileId)
+          .order('created_at', { ascending: false }),
+        supabase.from('user_gamification').select('xp').eq('user_id', profileId).maybeSingle(),
+      ]);
       if (mineErr) throw mineErr;
+      const profileXP = profileXPData?.xp ?? 0;
 
       const storiesWithAuthor: DBStory[] = (mine ?? []).map((story: any) => {
         const embeddedArr = toArray(story.profiles);
@@ -381,6 +395,7 @@ export default function PublicProfile() {
           profiles: [{
             ...st.profiles?.[0],
             user_badges: authorBadges,
+            user_gamification: [{ xp: profileXP }],
           }],
         };
       });
@@ -405,21 +420,23 @@ export default function PublicProfile() {
             .select(`
               id, title, body, cover_url, likes_count, comments_count,
               created_at, author_id, category,
-              profiles!stories_author_id_fkey ( display_name, avatar_url )
+              profiles!stories_author_id_fkey ( display_name, avatar_url, is_admin, created_at )
             `)
             .in('id', ids);
           if (likedErr) throw likedErr;
 
           const authorIds = Array.from(new Set((liked ?? []).map((s: any) => s.author_id)));
-          const pMap = new Map<string, { display_name: string | null; avatar_url: string | null }>();
+          const pMap = new Map<string, { display_name: string | null; avatar_url: string | null; is_admin: boolean; created_at: string }>();
+          const likedXPMap = new Map<string, number>();
           if (authorIds.length) {
-            const { data: authorProfiles } = await supabase
-              .from('profiles')
-              .select('id, display_name, avatar_url')
-              .in('id', authorIds);
+            const [{ data: authorProfiles }, { data: likedXPRows }] = await Promise.all([
+              supabase.from('profiles').select('id, display_name, avatar_url, is_admin, created_at').in('id', authorIds),
+              supabase.from('user_gamification').select('user_id, xp').in('user_id', authorIds),
+            ]);
             (authorProfiles ?? []).forEach((p: any) => {
-              pMap.set(p.id, { display_name: p.display_name ?? null, avatar_url: p.avatar_url ?? null });
+              pMap.set(p.id, { display_name: p.display_name ?? null, avatar_url: p.avatar_url ?? null, is_admin: Boolean(p.is_admin), created_at: p.created_at ?? '' });
             });
+            (likedXPRows ?? []).forEach((r: any) => likedXPMap.set(r.user_id, r.xp ?? 0));
           }
 
           likedList = (liked ?? []).map((story: any) => {
@@ -428,10 +445,12 @@ export default function PublicProfile() {
             const fromMap = pMap.get(story.author_id) ?? null;
             const display_name = current?.display_name ?? fromMap?.display_name ?? 'Autor';
             const avatar_url = current?.avatar_url ?? fromMap?.avatar_url ?? null;
+            const is_admin = current?.is_admin ?? fromMap?.is_admin ?? false;
+            const author_created_at = current?.created_at ?? fromMap?.created_at ?? '';
             return {
               ...story,
               liked_at: likedAtMap.get(story.id),
-              profiles: [{ display_name, avatar_url, user_badges: [] }],
+              profiles: [{ display_name, avatar_url, is_admin, created_at: author_created_at, user_badges: [], user_gamification: [{ xp: likedXPMap.get(story.author_id) ?? 0 }] }],
             };
           });
 
@@ -490,6 +509,7 @@ export default function PublicProfile() {
               profiles: [{
                 ...st.profiles?.[0],
                 user_badges: authorBadges,
+                user_gamification: [{ xp: likedXPMap.get(authorId) ?? 0 }],
               }],
             };
           });
@@ -586,11 +606,16 @@ export default function PublicProfile() {
       .from('conversations').select('id')
       .eq('user1_id', u1).eq('user2_id', u2).maybeSingle();
 
+    const chatParams = {
+      otherName: displayName,
+      otherAvatar: avatarUrl ?? '',
+      otherUserId: profileId,
+      isAdmin: isAdmin ? '1' : '0',
+      isEarly: isEarlyUser ? '1' : '0',
+    };
+
     if (existing) {
-      router.push({
-        pathname: '/chat/[id]',
-        params: { id: existing.id, otherName: displayName, otherAvatar: avatarUrl ?? '', otherUserId: profileId },
-      });
+      router.push({ pathname: '/chat/[id]', params: { id: existing.id, ...chatParams } });
       return;
     }
 
@@ -599,11 +624,8 @@ export default function PublicProfile() {
 
     if (error || !created) { Alert.alert('Error', 'No se pudo abrir el chat.'); return; }
 
-    router.push({
-      pathname: '/chat/[id]',
-      params: { id: created.id, otherName: displayName, otherAvatar: avatarUrl ?? '', otherUserId: profileId },
-    });
-  }, [viewerId, profileId, router, displayName, avatarUrl, fromChat]);
+    router.push({ pathname: '/chat/[id]', params: { id: created.id, ...chatParams } });
+  }, [viewerId, profileId, router, displayName, avatarUrl, fromChat, isAdmin, isEarlyUser]);
 
   const toggleLike = useCallback(
     async (story: DBStory) => {
@@ -671,20 +693,21 @@ export default function PublicProfile() {
             <View style={{ flex: 1 }}>
               <Text style={s.name}>{displayName}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                {userBadges.map((badge) => (
+                {getStaticBadges(isAdmin, createdAt).map((badge) => (
                   <TouchableOpacity
                     key={badge.id}
-                    onPress={() => { 
-                      console.log('[BADGE TOUCH] Badge:', badge.name, 'userBadgeId:', (badge as any).userBadgeId);
-                      console.log('[BADGE TOUCH] Viewer:', viewerId, 'isViewerAdmin:', isViewerAdmin);
-                      setSelectedUserBadge(badge); 
-                      setShowBadgeInfo(true); 
-                    }}
-                    hitSlop={8}
+                    onPress={() => { setSelectedStaticBadge(badge); setShowStaticBadgeInfo(true); }}
+                    hitSlop={6}
                   >
-                    <BadgeIcon iconKey={badge.icon || 'verified_MI_0'} size={24} color={badge.color} />
+                    <BadgeIcon iconKey={badge.icon} size={22} color={badge.color} />
                   </TouchableOpacity>
                 ))}
+                <TouchableOpacity
+                  onPress={() => router.push({ pathname: '/profile/gamification', params: { userId: profileId } })}
+                  hitSlop={8}
+                >
+                  <MaterialCommunityIcons name={getCurrentLevel(visitedXP).icon as any} size={22} color={getCurrentLevel(visitedXP).color} />
+                </TouchableOpacity>
                 {/* Admin visitante ve botón de regalar cuando visita otro perfil */}
                 {viewerId && profileId !== viewerId && isViewerAdmin && (
                   <TouchableOpacity
@@ -782,6 +805,24 @@ export default function PublicProfile() {
                       <Text style={s.removeBadgeBtnText}>Remover insignia</Text>
                     </TouchableOpacity>
                   )}
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={showStaticBadgeInfo} transparent animationType="fade" onRequestClose={() => setShowStaticBadgeInfo(false)}>
+          <View style={s.badgeOverlay}>
+            <TouchableOpacity style={s.badgeBackdrop} onPress={() => setShowStaticBadgeInfo(false)} />
+            <View style={s.badgeContent}>
+              <TouchableOpacity style={s.badgeCloseBtn} onPress={() => setShowStaticBadgeInfo(false)}>
+                <Ionicons name="close-circle" size={28} color="#F3F4F6" />
+              </TouchableOpacity>
+              {selectedStaticBadge && (
+                <View style={s.badgeInfo}>
+                  <BadgeIcon iconKey={selectedStaticBadge.icon} size={56} color={selectedStaticBadge.color} />
+                  <Text style={s.badgeTitle}>{selectedStaticBadge.name}</Text>
+                  <Text style={s.badgeDesc}>{selectedStaticBadge.description}</Text>
                 </View>
               )}
             </View>
@@ -913,6 +954,9 @@ function PublicStoryCard({
   const profile0 = toArray(item.profiles)[0] ?? null;
   const authorForCard = profile0?.display_name?.trim() || 'Autor';
   const authorAvatar = profile0?.avatar_url ?? null;
+  const authorIsAdmin = profile0?.is_admin ?? false;
+  const authorCreatedAt = profile0?.created_at ?? '';
+  const authorXP = (profile0?.user_gamification as any)?.[0]?.xp ?? 0;
 
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likeUsers, setLikeUsers] = useState<LikeUser[]>([]);
@@ -1032,13 +1076,13 @@ function PublicStoryCard({
                 <Ionicons name="person-outline" size={12} color="#9CA3AF" />
               </View>
             )}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
               <Text style={s.authorTxt}>{authorForCard}</Text>
-              {profile0?.user_badges?.map((badge: any, idx: number) => (
-                <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={12} color={badge.color || '#F3F4F6'} />
+              {getStaticBadges(authorIsAdmin, authorCreatedAt).map((b) => (
+                <BadgeIcon key={b.id} iconKey={b.icon} size={13} color={b.color} />
               ))}
+              <MaterialCommunityIcons name={getCurrentLevel(authorXP).icon as any} size={13} color={getCurrentLevel(authorXP).color} />
             </View>
-            <View style={{ flex: 1 }} />
             {item.category && <CategoryBadge category={item.category} />}
           </View>
 
@@ -1131,8 +1175,8 @@ function PublicStoryCard({
                         )}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
                           <Text style={s.likeUserName}>{user.display_name || 'Usuario'}</Text>
-                          {user.userBadges?.map((badge, idx) => (
-                            <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+                          {getStaticBadges(user.is_admin, user.created_at).map((b) => (
+                            <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
                           ))}
                         </View>
                         <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={{ marginLeft: 'auto' }} />

@@ -143,6 +143,9 @@ export default function SettingsScreen() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
+  const [restrictUnipaz, setRestrictUnipaz] = useState(true);
+  const [savingRestrict, setSavingRestrict] = useState(false);
+
   const [stories, setStories] = useState<Story[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
@@ -221,9 +224,30 @@ export default function SettingsScreen() {
         setIsAdmin(Boolean(prof.is_admin));
         await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(prof.likes_public));
       }
+
+      const { data: setting } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'restrict_unipaz_email')
+        .single();
+      if (setting !== null) setRestrictUnipaz(Boolean(setting.value));
+
       loadBadges();
     })();
   }, []);
+
+  async function toggleUnipazRestrict(next: boolean) {
+    if (savingRestrict) return;
+    setSavingRestrict(true);
+    const prev = restrictUnipaz;
+    setRestrictUnipaz(next);
+    const { error } = await supabase
+      .from('app_settings')
+      .update({ value: next, updated_at: new Date().toISOString() })
+      .eq('key', 'restrict_unipaz_email');
+    if (error) setRestrictUnipaz(prev);
+    setSavingRestrict(false);
+  }
 
   async function toggleLikes(next: boolean) {
     if (!userId || savingLikes) return;
@@ -491,7 +515,7 @@ export default function SettingsScreen() {
         <View style={s.headerBtn} />
       </View>
 
-      <View style={[s.content, { paddingBottom: insets.bottom > 0 ? insets.bottom + 16 : 20, flex: 1 }]}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[s.content, { paddingBottom: insets.bottom > 0 ? insets.bottom + 24 : 28 }]} showsVerticalScrollIndicator={false}>
         <SettingRow icon="notifications-outline" label="Notificaciones">
           <Text style={s.comingSoon}>Próximamente</Text>
         </SettingRow>
@@ -520,6 +544,16 @@ export default function SettingsScreen() {
               <Text style={s.adminDividerText}>ADMINISTRADOR</Text>
               <View style={s.adminDividerLine} />
             </View>
+
+            <SettingRow icon="school-outline" label="Registro solo @unipaz.edu.co">
+              <Switch
+                value={restrictUnipaz}
+                onValueChange={toggleUnipazRestrict}
+                disabled={savingRestrict}
+                thumbColor={restrictUnipaz ? '#60A5FA' : '#374151'}
+                trackColor={{ true: '#1E3A5F', false: '#111827' }}
+              />
+            </SettingRow>
 
             <TouchableOpacity style={s.row} onPress={() => { setEditingBadge(false); openBadgeModal(); }} activeOpacity={0.8}>
               <MaterialIcons name="add-circle-outline" size={18} color="#F3F4F6" />
@@ -574,7 +608,7 @@ export default function SettingsScreen() {
         <TouchableOpacity style={s.logoutBtn} onPress={logout} activeOpacity={0.85}>
           <Text style={s.logoutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
 
       {/* ── MODAL CREAR INSIGNIA ─────────────────────────────────────────── */}
       <Modal visible={showBadgeModal} transparent animationType="slide" onRequestClose={() => setShowBadgeModal(false)}>
@@ -852,8 +886,8 @@ export default function SettingsScreen() {
 
       {/* Modal info de insignia */}
       <Modal visible={showBadgeInfoModal} transparent animationType="fade" onRequestClose={() => setShowBadgeInfoModal(false)}>
-        <View style={[s.overlay, { paddingBottom: insets.bottom }]}>
-          <Pressable style={s.backdrop} onPress={() => setShowBadgeInfoModal(false)} />
+        <View style={s.badgeInfoOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBadgeInfoModal(false)} />
           {selectedBadge && (
             <View style={s.badgeInfoContent}>
               <TouchableOpacity style={s.badgeInfoClose} onPress={() => setShowBadgeInfoModal(false)}>
@@ -981,12 +1015,11 @@ const s = StyleSheet.create({
     backgroundColor: '#121219',
     borderRadius: 20,
     padding: 24,
-    width: '85%',
-    maxWidth: 320,
+    width: '100%',
     borderWidth: 1,
     borderColor: '#1F1F27',
     alignItems: 'center',
-    zIndex: 10,
+    alignSelf: 'center',
   },
   badgeInfoClose: { position: 'absolute', top: 12, right: 12, zIndex: 20 },
   badgeInfoIconWrap: {
@@ -1061,6 +1094,7 @@ const s = StyleSheet.create({
   saveBtnText: { color: '#F3F4F6', fontWeight: '600', fontSize: 16 },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  badgeInfoOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
   backdrop: { flex: 1 },
   sheet: { width: '100%', backgroundColor: '#010102ff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, borderTopWidth: 1, borderColor: '#181818ff' },
   iconWrap: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 8 },

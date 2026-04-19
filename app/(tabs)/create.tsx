@@ -22,6 +22,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useNavigation } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
+import { awardStoryXP } from '../../lib/gamification';
 import { moderateImage } from '../../lib/moderation';
 import Animated, {
   useSharedValue,
@@ -232,6 +233,7 @@ export default function CreateScreen() {
 
       const { error: insErr } = await supabase.from('stories').insert(payload);
       if (insErr) throw insErr;
+      awardStoryXP(userId).catch(() => {});
 
       setTitle('');
       setBody('');

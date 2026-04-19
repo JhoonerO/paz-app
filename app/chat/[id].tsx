@@ -12,8 +12,11 @@ import { supabase } from '../../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import StoryMessageCard from '../../components/StoryMessageCard';
 import { BadgeIcon } from '../profile/settings';
+import { getStaticBadges } from '../../lib/badges';
+import { getCurrentLevel } from '../../lib/gamification';
 
 // ── Tipo Message actualizado ──────────────────────────────────────────────────
 type Message = {
@@ -99,6 +102,7 @@ export default function ChatScreen() {
   const conversationId = id;
 
   const [myId, setMyId] = useState<string | null>(null);
+  const [otherXP, setOtherXP] = useState(0);
   const myIdRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesRef = useRef<Message[]>([]);
@@ -155,6 +159,12 @@ export default function ChatScreen() {
       setMyId(user.id);
       myIdRef.current = user.id;
       await loadMessages(user.id);
+
+      // Cargar XP del otro usuario
+      if (otherUserId) {
+        supabase.from('user_gamification').select('xp').eq('user_id', otherUserId).maybeSingle()
+          .then(({ data: gam }) => setOtherXP(gam?.xp ?? 0));
+      }
 
       // Cargar insignias del otro usuario
       if (otherUserId) {
@@ -449,9 +459,10 @@ export default function ChatScreen() {
           >
             <TouchableOpacity style={s.headerNameRow} activeOpacity={0.8}>
               <Text style={s.headerName} numberOfLines={1}>{otherName}</Text>
-              {otherBadges.map((badge: any, idx: number) => (
-                <BadgeIcon key={idx} iconKey={badge.icon || 'verified_MI_0'} size={14} color={badge.color || '#F3F4F6'} />
+              {getStaticBadges(isAdminBadge, isEarlyBadge ? '2025-01-01' : '2026-06-01').map((b) => (
+                <BadgeIcon key={b.id} iconKey={b.icon} size={14} color={b.color} />
               ))}
+              <MaterialCommunityIcons name={getCurrentLevel(otherXP).icon as any} size={14} color={getCurrentLevel(otherXP).color} />
             </TouchableOpacity>
           </Link>
         </View>

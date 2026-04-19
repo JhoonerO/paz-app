@@ -1,5 +1,5 @@
 // app/(auth)/register.tsx
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -121,6 +121,8 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
+  const [restrictUnipaz, setRestrictUnipaz] = useState(true);
+
   // Modales legales
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
@@ -158,6 +160,17 @@ export default function Register() {
     setShowNotifSheet(true);
   }
 
+  useEffect(() => {
+    supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'restrict_unipaz_email')
+      .single()
+      .then(({ data }) => {
+        if (data !== null) setRestrictUnipaz(Boolean(data.value));
+      });
+  }, []);
+
   function redirectUrl() {
     return Linking.createURL('/auth/callback');
   }
@@ -188,6 +201,15 @@ export default function Register() {
       showNotification(
         'Términos requeridos',
         'Debes aceptar los Términos y la Política de Privacidad para continuar.',
+        'error'
+      );
+      return;
+    }
+
+    if (restrictUnipaz && !trimmedEmail.endsWith('@unipaz.edu.co')) {
+      showNotification(
+        'Correo no permitido',
+        'El registro está disponible solo para correos institucionales @unipaz.edu.co.',
         'error'
       );
       return;
@@ -273,6 +295,10 @@ export default function Register() {
                   value={email}
                   onChangeText={setEmail}
                 />
+
+                {restrictUnipaz && (
+                  <Text style={s.domainHint}>Solo correos @unipaz.edu.co</Text>
+                )}
 
                 {/* Contraseña */}
                 <View style={s.pwdWrap}>
@@ -533,6 +559,7 @@ const s = StyleSheet.create({
   footer: { marginTop: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   footerText: { color: C.textSecondary, fontSize: 14 },
   link: { color: C.textPrimary, textDecorationLine: 'underline', fontSize: 14 },
+  domainHint: { color: '#6B7280', fontSize: 11, textAlign: 'center', marginTop: 4 },
   // Notificación
   overlay: {
     flex: 1,
