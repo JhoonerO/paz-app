@@ -52,6 +52,11 @@ export function getLevelProgress(xp: number): number {
   return Math.min(earned / range, 1);
 }
 
+export function formatCoins(amount: number): string {
+  if (amount >= 1000) return `${(amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 1)} Lukas`;
+  return `${amount} Pesos`;
+}
+
 // Colombia = UTC-5; el día cambia a medianoche hora colombiana
 function todayStr(): string {
   const now = new Date();

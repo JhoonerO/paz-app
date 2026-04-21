@@ -7,7 +7,11 @@
       "Bash(node -e \"require\\('./lib/badges.ts'\\)\")",
       "Bash(npx expo *)",
       "Bash(magick -version)",
-      "Bash(convert -version)"
+      "Bash(convert -version)",
+      "Bash(cp \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/NuevoLogo.png\" \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/icon.png\")",
+      "Bash(cp \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/NuevoLogo.png\" \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/adaptive-icon.png\")",
+      "Bash(supabase link *)",
+      "Bash(supabase functions *)"
     ]
   }
 }

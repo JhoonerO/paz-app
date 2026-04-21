@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { clearBadgeCache } from '../../lib/badgeCache';
+import { formatCoins } from '../../lib/gamification';
 import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 
 const KEY_SESSION = 'session_active';
@@ -140,6 +141,7 @@ export default function SettingsScreen() {
   const [savingLikes, setSavingLikes] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userCoins, setUserCoins] = useState(0);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -229,6 +231,13 @@ export default function SettingsScreen() {
         setNotifMuted(Boolean(prof.notifications_muted));
         await AsyncStorage.setItem(KEY_SHOW_LIKES_CACHE, String(prof.likes_public));
       }
+
+      const { data: gamif } = await supabase
+        .from('user_gamification')
+        .select('coins')
+        .eq('user_id', uid)
+        .maybeSingle();
+      if (gamif) setUserCoins(gamif.coins ?? 0);
 
       const { data: setting } = await supabase
         .from('app_settings')
@@ -535,6 +544,11 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[s.content, { paddingBottom: insets.bottom > 0 ? insets.bottom + 24 : 28 }]} showsVerticalScrollIndicator={false}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, paddingBottom: 16 }}>
+          <MaterialCommunityIcons name="cash" size={18} color="#C084FC" />
+          <Text style={{ color: '#C084FC', fontSize: 15, fontWeight: '700' }}>{formatCoins(userCoins)}</Text>
+        </View>
+
         <SettingRow icon="notifications-outline" label="Silenciar notificaciones">
           <Switch
             value={notifMuted}

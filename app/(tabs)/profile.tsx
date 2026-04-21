@@ -21,7 +21,7 @@ import { useFonts, Risque_400Regular } from '@expo-google-fonts/risque';
 import { supabase } from '../../lib/supabase';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges, type StaticBadge } from '../../lib/badges';
-import { checkAndUpdateStreak, getCurrentLevel } from '../../lib/gamification';
+import { checkAndUpdateStreak, getCurrentLevel, formatCoins } from '../../lib/gamification';
 import { getScopeBadges } from '../../lib/badgeCache';
 import { GestureHandlerRootView, PinchGestureHandler, TapGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
@@ -256,6 +256,7 @@ export default function Profile() {
   const [selectedStaticBadge, setSelectedStaticBadge] = useState<StaticBadge | null>(null);
   const [showStaticBadgeInfo, setShowStaticBadgeInfo] = useState(false);
   const [userXP, setUserXP] = useState(0);
+  const [userCoins, setUserCoins] = useState(0);
 
   const [showSheet, setShowSheet] = useState(false);
   const [sheet, setSheet] = useState<{
@@ -369,10 +370,15 @@ export default function Profile() {
       checkAndUpdateStreak(uid).catch(() => {});
       supabase
         .from('user_gamification')
-        .select('xp')
+        .select('xp, coins')
         .eq('user_id', uid)
         .maybeSingle()
-        .then(({ data: g }) => { if (g) setUserXP(g.xp ?? 0); });
+        .then(({ data: g }) => {
+          if (g) {
+            setUserXP(g.xp ?? 0);
+            setUserCoins(g.coins ?? 0);
+          }
+        });
 
       // Cargar insignias según scope
       const userIsAdmin = prof?.is_admin ?? false;
@@ -800,6 +806,12 @@ export default function Profile() {
                   color={getCurrentLevel(userXP).color}
                 />
               </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+              <MaterialCommunityIcons name="cash" size={14} color="#C084FC" />
+              <Text style={{ color: '#C084FC', fontSize: 13, fontWeight: '600' }}>
+                {formatCoins(userCoins)}
+              </Text>
             </View>
           </View>
         </View>

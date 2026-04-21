@@ -22,6 +22,7 @@ import ShareStorySheet from '../../components/ShareStorySheet';
 import { BadgeIcon } from '../profile/settings';
 import { getStaticBadges } from '../../lib/badges';
 import { awardLikeXP, getCurrentLevel, XP_PER_LIKE } from '../../lib/gamification';
+import NatalIABanner from '../../components/NatalIABanner';
 import { getScopeBadges } from '../../lib/badgeCache';
 import Animated, {
   useSharedValue,
@@ -189,6 +190,7 @@ function FeedSkeleton() {
 
 // ─── Feed principal ───────────────────────────────────────────────────────────
 export default function Feed() {
+  const router = useRouter();
   const [stories, setStories] = useState<DBStory[]>([]);
   const [likedSet, setLikedSet] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
@@ -425,6 +427,7 @@ export default function Feed() {
             ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
             onEndReached={loadMore}
             onEndReachedThreshold={0.4}
+
             ListFooterComponent={loadingMore ? <ActivityIndicator color="#6366F1" style={{ marginVertical: 16 }} /> : null}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.textPrimary} />
@@ -753,6 +756,25 @@ const s = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: '#818CF8',
+  },
+  natalFab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#2D1B4E',
+    borderWidth: 1,
+    borderColor: '#7C3AED',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  natalFabTxt: {
+    color: '#E9D5FF',
+    fontWeight: '700',
+    fontSize: 14,
   },
   likeXpToastText: {
     color: '#818CF8',
