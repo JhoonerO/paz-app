@@ -202,6 +202,7 @@ export default function Feed() {
 
   const [likeXpToastVisible, setLikeXpToastVisible] = useState(false);
   const likeXpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeXpAwardedRef = useRef<Set<string>>(new Set());
 
   const PAGE_SIZE = 15;
   const isLoadedRef = useRef(false);
@@ -302,7 +303,6 @@ export default function Feed() {
       .limit(PAGE_SIZE);
 
     if (error) {
-      console.warn(error.message);
       setStories([]);
       setLikedSet(new Set());
       isLoadedRef.current = true;
@@ -385,13 +385,15 @@ export default function Feed() {
         setStories((prev) => prev.map((st) =>
           st.id === id ? { ...st, likes_count: (st.likes_count || 0) + 1 } : st
         ));
-        awardLikeXP(uid).catch(() => {});
-        if (likeXpTimerRef.current) clearTimeout(likeXpTimerRef.current);
-        setLikeXpToastVisible(true);
-        likeXpTimerRef.current = setTimeout(() => setLikeXpToastVisible(false), 2500);
+        if (!likeXpAwardedRef.current.has(id)) {
+          likeXpAwardedRef.current.add(id);
+          awardLikeXP(uid).catch(() => {});
+          if (likeXpTimerRef.current) clearTimeout(likeXpTimerRef.current);
+          setLikeXpToastVisible(true);
+          likeXpTimerRef.current = setTimeout(() => setLikeXpToastVisible(false), 2500);
+        }
       }
-    } catch (error) {
-      console.error('Error toggling like:', error);
+    } catch {
     }
   }, []);
 
@@ -555,8 +557,7 @@ const StoryCard = memo(function StoryCard({
         userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
-    } catch (e: any) {
-      console.error('Error cargando likes:', e);
+    } catch {
     } finally {
       setLoadingLikes(false);
     }
@@ -667,7 +668,7 @@ const StoryCard = memo(function StoryCard({
           <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
           <View style={s.likesSheet}>
             <View style={s.likesHeader}>
-              <Text style={s.likesTitle}>Les dio like</Text>
+              <Text style={s.likesTitle}>Personas que reaccionaron ({likeUsers.length})</Text>
               <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
                 <Ionicons name="close" size={24} color={C.textPrimary} />
               </TouchableOpacity>

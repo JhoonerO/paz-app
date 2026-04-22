@@ -14,7 +14,6 @@ export async function fetchLikedSetForFeed(storyIds: string[]): Promise<Set<stri
     .eq('user_id', uid)
     .in('story_id', storyIds);
   if (error) {
-    console.warn('fetchLikedSetForFeed:', error.message);
     return new Set();
   }
   return new Set((data ?? []).map((r) => r.story_id as string));
@@ -29,7 +28,6 @@ export async function isLiked(storyId: string): Promise<boolean> {
     .eq('story_id', storyId)
     .eq('user_id', uid);
   if (error) {
-    console.warn('isLiked:', error.message);
     return false;
   }
   return (count ?? 0) > 0;
@@ -48,6 +46,8 @@ export async function like(storyId: string) {
   if (error && !/duplicate|already exists/i.test(error.message)) {
     throw error;
   }
+
+  supabase.functions.invoke('verificar-dinamicas').catch(() => {});
 
   // 👇 CREAR NOTIFICACIÓN
   if (data && !error) {
@@ -69,8 +69,8 @@ export async function like(storyId: string) {
             read: false
           });
       }
-    } catch (err) {
-      console.warn('Error creating like notification:', err);
+    } catch {
+      // notificación no crítica
     }
   }
 
@@ -97,7 +97,7 @@ export async function unlike(storyId: string) {
       .eq('story_id', storyId)
       .eq('actor_id', uid)
       .eq('type', 'like');
-  } catch (err) {
-    console.warn('Error deleting like notification:', err);
+  } catch {
+    // notificación no crítica
   }
 }

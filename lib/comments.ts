@@ -14,6 +14,8 @@ export async function addComment(storyId: string, text: string) {
 
   if (error) throw error;
 
+  supabase.functions.invoke('verificar-dinamicas').catch(() => {});
+
   // 👇 CREAR NOTIFICACIÓN
   try {
     const { data: story } = await supabase
@@ -33,7 +35,7 @@ export async function addComment(storyId: string, text: string) {
           read: false
         });
     }
-  } catch (err) {
-    console.warn('Error creating comment notification:', err);
+  } catch {
+    // notificación no crítica
   }
 }

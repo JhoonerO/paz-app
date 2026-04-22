@@ -128,7 +128,10 @@ export default function GamificationScreen() {
     setResolvedUserId(targetUid);
     setIsOwn(!paramUserId || paramUserId === currentUid);
 
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const colombiaOffset = -5 * 60;
+    const localColombia = new Date(now.getTime() + (colombiaOffset - now.getTimezoneOffset()) * 60000);
+    const today = localColombia.toISOString().split('T')[0];
 
     // Cargar XP + racha
     const { data: g } = await supabase

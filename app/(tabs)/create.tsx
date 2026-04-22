@@ -182,8 +182,7 @@ export default function CreateScreen() {
         }
         setCoverUri(uri);
       }
-    } catch (error) {
-      console.error('Error al seleccionar imagen:', error);
+    } catch {
       setModerating(false);
       setPublishState('idle');
     } finally {
@@ -234,6 +233,7 @@ export default function CreateScreen() {
       const { error: insErr } = await supabase.from('stories').insert(payload);
       if (insErr) throw insErr;
       awardStoryXP(userId).catch(() => {});
+      supabase.functions.invoke('verificar-dinamicas').catch(() => {});
 
       setTitle('');
       setBody('');
@@ -247,7 +247,6 @@ export default function CreateScreen() {
         router.replace('/(tabs)');
       }, 1500);
     } catch (e: any) {
-      console.error(e);
       setPublishState('idle');
       setSubmitting(false);
       Alert.alert('Error', e.message ?? 'No se pudo publicar la historia.');

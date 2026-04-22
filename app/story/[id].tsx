@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Dimensions,
   FlatList,
@@ -271,6 +272,7 @@ export default function StoryDetail() {
 
   const [likeXpToastVisible, setLikeXpToastVisible] = useState(false);
   const likeXpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeXpAwardedRef = useRef(false);
   const [commentXpToastVisible, setCommentXpToastVisible] = useState(false);
   const commentXpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userCommentCountRef = useRef(0);
@@ -320,22 +322,6 @@ export default function StoryDetail() {
     setShowSheet(true);
   }
 
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-  useEffect(() => {
-    const show = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => setKeyboardHeight(e.endCoordinates.height)
-    );
-    const hide = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboardHeight(0)
-    );
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   // ── 1. Obtiene el usuario en paralelo ────────────────────────────────────
   useEffect(() => {
@@ -408,7 +394,6 @@ export default function StoryDetail() {
           setStoryBody('No se pudo cargar esta historia.');
         }
       } catch (e) {
-        console.error('Error loading story:', e);
         setStoryTitle('Error');
         setStoryBody('No se pudo cargar esta historia.');
       } finally {
@@ -592,8 +577,7 @@ export default function StoryDetail() {
         userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
-    } catch (e: any) {
-      console.error('Error cargando likes:', e);
+    } catch {
     } finally {
       setLoadingLikes(false);
     }
@@ -643,10 +627,13 @@ export default function StoryDetail() {
       if (liked) await unlike(storyId);
       else {
         await like(storyId);
-        awardLikeXP(userId).catch(() => {});
-        if (likeXpTimerRef.current) clearTimeout(likeXpTimerRef.current);
-        setLikeXpToastVisible(true);
-        likeXpTimerRef.current = setTimeout(() => setLikeXpToastVisible(false), 2500);
+        if (!likeXpAwardedRef.current) {
+          likeXpAwardedRef.current = true;
+          awardLikeXP(userId).catch(() => {});
+          if (likeXpTimerRef.current) clearTimeout(likeXpTimerRef.current);
+          setLikeXpToastVisible(true);
+          likeXpTimerRef.current = setTimeout(() => setLikeXpToastVisible(false), 2500);
+        }
       }
     } catch {
       setLiked(!newLiked);
@@ -805,7 +792,10 @@ export default function StoryDetail() {
           </View>
         </View>
 
-        <View style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           {loading ? (
             <StorySkeleton />
           ) : (
@@ -928,11 +918,7 @@ export default function StoryDetail() {
           <View
             style={[
               s.inputBar,
-              {
-                marginBottom: keyboardHeight,
-                paddingBottom:
-                  keyboardHeight === 0 ? (insets.bottom > 0 ? insets.bottom : 10) : 10,
-              },
+              { paddingBottom: insets.bottom > 0 ? insets.bottom : 10 },
               sendingComment && { opacity: 0.6 },
             ]}
           >
@@ -955,7 +941,7 @@ export default function StoryDetail() {
               <Ionicons name="send-outline" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
 
         {/* ── Modales ───────────────────────────────────────────────────────── */}
         <ImageZoomModal
@@ -1024,7 +1010,7 @@ export default function StoryDetail() {
             <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
             <View style={s.likesSheet}>
               <View style={s.likesHeader}>
-                <Text style={s.likesTitle}>Les dio like</Text>
+                <Text style={s.likesTitle}>Personas que reaccionaron ({likeUsers.length})</Text>
                 <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
                   <Ionicons name="close" size={24} color="#F3F4F6" />
                 </TouchableOpacity>
@@ -1396,7 +1382,7 @@ const s = StyleSheet.create({
   },
   xpToast: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 90,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1415,7 +1401,7 @@ const s = StyleSheet.create({
   },
   likeXpToast: {
     position: 'absolute',
-    bottom: 130,
+    bottom: 140,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1434,7 +1420,7 @@ const s = StyleSheet.create({
   },
   commentXpToast: {
     position: 'absolute',
-    bottom: 160,
+    bottom: 190,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',

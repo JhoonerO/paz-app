@@ -9,8 +9,8 @@
     "backgroundColor": "#0B0B0F",
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/icon.png",
-      "resizeMode": "contain",
+      "image": "./assets/SplashNuevo.png",
+      "resizeMode": "cover",
       "backgroundColor": "#0B0B0F"
     },
     "androidStatusBar": {
@@ -20,15 +20,15 @@
     },
     "android": {
       "package": "com.jhoonero.paz",
-       "versionCode": 1,
+       "versionCode": 2,
        "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0B0F"
       },
       "splash": {
-        "image": "./assets/icon.png",
-        "resizeMode": "contain",
+        "image": "./assets/SplashNuevo.png",
+        "resizeMode": "cover",
         "backgroundColor": "#0B0B0F"
       },
       "intentFilters": [

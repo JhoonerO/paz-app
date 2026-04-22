@@ -1,14 +1,10 @@
 // lib/email.ts
 
-const RESEND_API_KEY = 're_ZhmBUV1w_ETv8UrakiHopSxcCxbG7YuYN';
-const ADMIN_EMAIL = 'soporte.upaz@gmail.com'; // 👈 TU CORREO
+const RESEND_API_KEY = process.env.EXPO_PUBLIC_RESEND_API_KEY ?? '';
+const ADMIN_EMAIL = 'soporte.upaz@gmail.com';
 
 export async function sendCodeToAdmin(userEmail: string, code: string) {
   try {
-    console.log('📧 Enviando código al admin:', ADMIN_EMAIL);
-    console.log('👤 Usuario:', userEmail);
-    console.log('🔐 Código:', code);
-
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -105,14 +101,11 @@ export async function sendCodeToAdmin(userEmail: string, code: string) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('❌ Error de Resend:', data);
       throw new Error(data.message || 'Error al enviar email');
     }
 
-    console.log('✅ Email enviado correctamente al admin');
     return data;
   } catch (error: any) {
-    console.error('❌ Error sending email:', error);
     throw error;
   }
 }

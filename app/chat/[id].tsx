@@ -1,8 +1,8 @@
 // app/chat/[id].tsx
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TextInput,
-  TouchableOpacity, Platform,
+  View, Text, StyleSheet, FlatList, TextInput, ScrollView,
+  TouchableOpacity, Platform, KeyboardAvoidingView,
   ActivityIndicator, Animated, Modal, Pressable, Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -120,6 +120,7 @@ export default function ChatScreen() {
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [editText, setEditText] = useState('');
   const [previewImage, setPreviewImage] = useState<{ uri: string; base64: string } | null>(null);
+  const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
 
@@ -338,9 +339,8 @@ export default function ChatScreen() {
         .from('chat-images').getPublicUrl(fileName);
 
       await sendMessage('', publicUrl);
-    } catch (e: any) {
+    } catch {
       Alert.alert('Error', 'No se pudo enviar la imagen.');
-      console.error('Upload error:', e);
     }
     setUploadingImage(false);
   };
@@ -362,9 +362,11 @@ export default function ChatScreen() {
     if (!editingMsg || !editText.trim()) return;
     const id = editingMsg.id;
     setEditingMsg(null);
-    await supabase.from('messages').update({
-      body: editText.trim(), edited: true,
-    }).eq('id', id);
+    try {
+      await supabase.from('messages').update({
+        body: editText.trim(), edited: true,
+      }).eq('id', id);
+    } catch {}
     setEditText('');
   };
 
@@ -372,9 +374,11 @@ export default function ChatScreen() {
     if (!selectedMsg) return;
     const id = selectedMsg.id;
     setSelectedMsg(null);
-    await supabase.from('messages').update({
-      is_deleted: true, body: 'Mensaje eliminado',
-    }).eq('id', id);
+    try {
+      await supabase.from('messages').update({
+        is_deleted: true, body: 'Mensaje eliminado',
+      }).eq('id', id);
+    } catch {}
   };
 
   const handleDeleteForMe = async () => {
@@ -382,7 +386,9 @@ export default function ChatScreen() {
     const id = selectedMsg.id;
     setSelectedMsg(null);
     setHiddenIds(prev => new Set([...prev, id]));
-    await supabase.from('message_hidden').upsert({ user_id: myId, message_id: id });
+    try {
+      await supabase.from('message_hidden').upsert({ user_id: myId, message_id: id });
+    } catch {}
   };
 
   const handleDeleteConversation = async () => {
@@ -393,14 +399,15 @@ export default function ChatScreen() {
       .filter(m => !hiddenIds.has(m.id))
       .map(m => ({ user_id: myId, message_id: m.id }));
 
-    if (allIds.length > 0) {
-      await supabase.from('message_hidden').upsert(allIds);
-    }
-
-    await supabase.from('conversation_hidden').upsert({
-      user_id: myId,
-      conversation_id: conversationId,
-    });
+    try {
+      if (allIds.length > 0) {
+        await supabase.from('message_hidden').upsert(allIds);
+      }
+      await supabase.from('conversation_hidden').upsert({
+        user_id: myId,
+        conversation_id: conversationId,
+      });
+    } catch {}
 
     setHiddenIds(prev => new Set([...prev, ...messagesRef.current.map(m => m.id)]));
     router.back();
@@ -460,7 +467,11 @@ export default function ChatScreen() {
       </View>
 
       {/* Area de mensajes con input abajo */}
-      <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: '#000' }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
         {loading ? <MessagesSkeleton /> : (
           <FlatList
             ref={flatListRef}
@@ -539,7 +550,9 @@ export default function ChatScreen() {
                     msg.image_url && !msg.body && { padding: 4 },
                   ]}>
                     {msg.image_url && !isDeleted && (
-                      <Image source={{ uri: msg.image_url }} style={s.msgImage} contentFit="cover" />
+                      <TouchableOpacity activeOpacity={0.9} onPress={() => setZoomImageUrl(msg.image_url!)}>
+                        <Image source={{ uri: msg.image_url }} style={s.msgImage} contentFit="cover" />
+                      </TouchableOpacity>
                     )}
                     {(msg.body || isDeleted) && (
                       <Text style={[s.bubbleTxt, isDeleted && s.deletedTxt]}>
@@ -600,7 +613,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
 
       {/* ── Preview imagen ────────────────────────────────────────────────── */}
       <Modal visible={!!previewImage} transparent animationType="fade"
@@ -660,6 +673,34 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         </Pressable>
+      </Modal>
+
+      {/* ── Zoom imagen ──────────────────────────────────────────────────── */}
+      <Modal
+        visible={!!zoomImageUrl} transparent animationType="fade"
+        onRequestClose={() => setZoomImageUrl(null)}
+        statusBarTranslucent
+      >
+        <View style={s.zoomOverlay}>
+          <TouchableOpacity style={s.zoomClose} onPress={() => setZoomImageUrl(null)} hitSlop={12}>
+            <Ionicons name="close" size={28} color="#F3F4F6" />
+          </TouchableOpacity>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={s.zoomScrollContent}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            centerContent
+          >
+            <Image
+              source={{ uri: zoomImageUrl ?? undefined }}
+              style={s.zoomImage}
+              contentFit="contain"
+            />
+          </ScrollView>
+        </View>
       </Modal>
 
       {/* ── Chat menu — tres puntos ───────────────────────────────────────── */}
@@ -775,6 +816,13 @@ const s = StyleSheet.create({
   },
   emptyTitle: { color: '#F3F4F6', fontSize: 18, fontWeight: '700' },
   emptySubtitle: { color: '#6B7280', fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  zoomOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.96)' },
+  zoomClose: {
+    position: 'absolute', top: 52, right: 20, zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 6,
+  },
+  zoomScrollContent: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  zoomImage: { width: '100%', aspectRatio: 1 },
 });
 
 const sk = StyleSheet.create({

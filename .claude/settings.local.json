@@ -11,7 +11,9 @@
       "Bash(cp \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/NuevoLogo.png\" \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/icon.png\")",
       "Bash(cp \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/NuevoLogo.png\" \"C:/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/assets/adaptive-icon.png\")",
       "Bash(supabase link *)",
-      "Bash(supabase functions *)"
+      "Bash(supabase functions *)",
+      "Bash(npx supabase *)",
+      "Bash(grep -r \"try.*{\" /c/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/app -type f -name \"*.tsx\" -o -name \"*.ts\")"
     ]
   }
 }

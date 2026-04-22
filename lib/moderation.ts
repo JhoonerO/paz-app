@@ -30,10 +30,8 @@ export async function moderateImage(imageUri: string): Promise<{
     });
 
     const result = await apiResponse.json();
-    console.log('Respuesta de Sightengine:', result);
 
     if (result.error) {
-      console.error('Error de Sightengine:', result.error);
       return { isApproved: false, reason: 'Error al verificar la imagen. Intenta de nuevo.' };
     }
 
@@ -83,8 +81,7 @@ export async function moderateImage(imageUri: string): Promise<{
 
     // Imagen aprobada ✅
     return { isApproved: true };
-  } catch (error: any) {
-    console.error('Error en moderación:', error);
+  } catch {
     return { isApproved: false, reason: 'No se pudo verificar la imagen. Intenta de nuevo.' };
   }
 }

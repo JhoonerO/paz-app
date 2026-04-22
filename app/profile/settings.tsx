@@ -575,6 +575,12 @@ export default function SettingsScreen() {
           <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
         </TouchableOpacity>
 
+        <View style={[s.row, { opacity: 0.5 }]}>
+          <MaterialCommunityIcons name="store-outline" size={18} color="#C084FC" />
+          <Text style={[s.rowLabel, { color: '#C084FC', flex: 1 }]}>Tienda</Text>
+          <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: '600' }}>Próximamente</Text>
+        </View>
+
         {/* ── SECCIÓN ADMIN ─────────────────────────────────────────────── */}
         {isAdmin && (
           <>

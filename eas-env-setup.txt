@@ -1,0 +1,16 @@
+Comandos para configurar variables de entorno en EAS (correr uno por uno en la terminal):
+
+eas env:create --name EXPO_PUBLIC_RESEND_API_KEY --value "re_ZhmBUV1w_ETv8UrakiHopSxcCxbG7YuYN" --environment production --visibility secret
+
+eas env:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://rcuqqcnmnfojojofnfld.supabase.co" --environment production --visibility public
+
+eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjdXFxY25tbmZvam9qb2ZuZmxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4NzQ4OTEsImV4cCI6MjA3NDQ1MDg5MX0.syTXjtf9hsDbOgwFUB5qpWqOF6a1-5SP2PowakEViqY" --environment production --visibility public
+
+eas env:create --name EXPO_PUBLIC_SIGHTENGINE_API_USER --value "1783782610" --environment production --visibility secret
+
+eas env:create --name EXPO_PUBLIC_SIGHTENGINE_API_SECRET --value "WQzJFQ8VQP2rhg8vNQ8QMJ4HKSZ4vN3k" --environment production --visibility secret
+
+
+Una vez configurados, compilar con:
+
+eas build --platform android --profile production

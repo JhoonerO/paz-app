@@ -799,13 +799,6 @@ export default function Profile() {
                   <BadgeIcon iconKey={badge.icon} size={22} color={badge.color} />
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity onPress={() => router.push('/profile/gamification')} hitSlop={6}>
-                <MaterialCommunityIcons
-                  name={getCurrentLevel(userXP).icon as any}
-                  size={22}
-                  color={getCurrentLevel(userXP).color}
-                />
-              </TouchableOpacity>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
               <MaterialCommunityIcons name="cash" size={14} color="#C084FC" />
@@ -823,7 +816,7 @@ export default function Profile() {
               style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
             >
               <Text style={[s.tabTxt, tab === 'mine' && s.tabTxtActive]}>
-                {`Mis Historias ${myStories.length}`}
+                {`Historias ${myStories.length}`}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -831,7 +824,7 @@ export default function Profile() {
               style={[s.tabBtn, tab === 'likes' && s.tabBtnActive]}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Me gusta</Text>
+                <Text style={[s.tabTxt, tab === 'likes' && s.tabTxtActive]}>Likes</Text>
                 {!likesPublic && <Ionicons name="lock-closed-outline" size={14} color="#9CA3AF" />}
               </View>
             </TouchableOpacity>
@@ -1137,8 +1130,7 @@ function ProfileStoryCard({
         userBadges: badgesMap.get(like.user_id) || [],
       }));
       setLikeUsers(users);
-    } catch (e: any) {
-      console.error('Error cargando likes:', e);
+    } catch {
     } finally {
       setLoadingLikes(false);
     }
@@ -1237,7 +1229,7 @@ function ProfileStoryCard({
           <TouchableOpacity style={s.likeBackdrop} onPress={() => setShowLikesModal(false)} />
           <View style={s.likesSheet}>
             <View style={s.likesHeader}>
-              <Text style={s.likesTitle}>Les dio like</Text>
+              <Text style={s.likesTitle}>Personas que reaccionaron ({likeUsers.length})</Text>
               <TouchableOpacity onPress={() => setShowLikesModal(false)} hitSlop={10}>
                 <Ionicons name="close" size={24} color="#F3F4F6" />
               </TouchableOpacity>

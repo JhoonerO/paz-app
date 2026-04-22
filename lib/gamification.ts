@@ -53,7 +53,14 @@ export function getLevelProgress(xp: number): number {
 }
 
 export function formatCoins(amount: number): string {
-  if (amount >= 1000) return `${(amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 1)} Lukas`;
+  if (amount >= 1000000) {
+    const palos = amount / 1000000;
+    return `${palos % 1 === 0 ? palos : palos.toFixed(1)} ${palos === 1 ? 'Palo' : 'Palos'}`;
+  }
+  if (amount >= 1000) {
+    const lukas = amount / 1000;
+    return `${lukas % 1 === 0 ? lukas : lukas.toFixed(1)} ${lukas === 1 ? 'Luka' : 'Lukas'}`;
+  }
   return `${amount} Pesos`;
 }
 
