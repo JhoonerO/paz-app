@@ -13,7 +13,9 @@
       "Bash(supabase link *)",
       "Bash(supabase functions *)",
       "Bash(npx supabase *)",
-      "Bash(grep -r \"try.*{\" /c/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/app -type f -name \"*.tsx\" -o -name \"*.ts\")"
+      "Bash(grep -r \"try.*{\" /c/Users/Jhooner/Desktop/Proyectos/Upaz/paz-app/app -type f -name \"*.tsx\" -o -name \"*.ts\")",
+      "Bash(npm install *)",
+      "Bash(npm list *)"
     ]
   }
 }

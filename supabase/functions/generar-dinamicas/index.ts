@@ -123,14 +123,14 @@ REGLAS PARA INSTRUCCIONES (campo instrucciones):
   * recibir_like: "Sube o revisa tus historias publicadas. Consigue que [N] personas te den like. Comparte en el chat si quieres que te lean."
   * estar_activo: "Abre [N] historias y léelas hasta el final — el sistema detecta cuando terminas de leer. No vale solo abrir y cerrar."
 
-SISTEMA DE RECOMPENSAS (coins_reward debe ser múltiplo de 100):
-- Muy fácil (leer 1 historia, comentar 1 vez): 100-200 pesos, xp 20-40
-- Fácil (comentar 2-3 veces, estar activo): 200-500 pesos, xp 40-80
-- Normal (subir 1 historia, comentar 4 veces): 500-1000 pesos (hasta 1 luka), xp 80-150
-- Difícil (recibir 5+ likes, comentar 5+ veces): 2000-5000 pesos (2-5 lukas), xp 150-300
-- Muy difícil (recibir 10+ likes, publicar 3+ historias): 10000-50000 (10-50 lukas), xp 300-500
-- Legendario con medalla: 100000+ pesos (100+ lukas), xp 500+. Rarísimo, solo para algo verdaderamente especial
-- El PALO (1000000 pesos): prácticamente imposible, solo si toda la comunidad debe participar
+SISTEMA DE RECOMPENSAS (coins_reward debe ser uno de estos valores exactos: 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000):
+- Muy fácil (leer 1 historia, comentar 1 vez): 500 pesos, xp 20-40
+- Fácil (comentar 2-3 veces, estar activo): 500-1000 pesos (hasta 1 luka), xp 40-80
+- Normal (subir 1 historia, comentar 4 veces): 1000-2000 pesos (1-2 lukas), xp 80-150
+- Difícil (recibir 5+ likes, comentar 5+ veces): 2000-10000 pesos (2-10 lukas), xp 150-300
+- Muy difícil (recibir 10+ likes, publicar 3+ historias): 10000-20000 (10-20 lukas), xp 300-500
+- Legendario con medalla: 50000-100000 (50-100 lukas), xp 500+. RARÍSIMO, solo para algo verdaderamente especial y difícil. En un día normal NO uses esto.
+- IMPORTANTE: el 90% de las dinámicas del día deben dar entre 500 y 20000 pesos. Los 50000 y 100000 son para ocasiones muy especiales.
 
 Responde SIEMPRE en JSON válido, sin texto extra, sin markdown, sin bloques de código.`,
 
@@ -141,8 +141,8 @@ Analiza los datos y crea 3 dinámicas variadas para HOY:
 - Si hay pocos comentarios hoy, pon una dinámica de comentar
 - Varía los tipos (no todo "subir_historia")
 - Las descripciones NO empiezan con "Soy Natal-IA", van directo al grano con jerga colombiana
-- Los coins_reward deben ser múltiplos de 100 (100, 200, 500, 1000, 2000, 5000...)
-- Lo normal del día son 100-500 pesos en coins
+- Los coins_reward deben ser uno de estos valores exactos: 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000
+- Lo normal del día son 500-20000 pesos en coins. No uses 50000 ni 100000 a menos que el reto sea legendario
 
 Responde ÚNICAMENTE con este JSON:
 {
@@ -158,7 +158,7 @@ Responde ÚNICAMENTE con este JSON:
         "cantidad": 1
       },
       "xp_reward": 80,
-      "coins_reward": 200,
+      "coins_reward": 1000,
       "tiene_medalla": false
     }
   ]
@@ -178,7 +178,7 @@ Responde ÚNICAMENTE con este JSON:
       tipo: d.tipo ?? 'diaria',
       condicion: d.condicion,
       xp_reward: d.xp_reward ?? 50,
-      coins_reward: d.coins_reward ?? 20,
+      coins_reward: d.coins_reward ?? 500,
       badge_id: d.tiene_medalla ? 'medalla_natal_ia' : null,
       fecha_inicio: ahora.toISOString(),
       fecha_fin: manana.toISOString(),

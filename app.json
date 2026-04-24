@@ -1,10 +1,19 @@
 {
   "expo": {
-    "name": "PAZ",
+    "name": "U-PAZ",
     "slug": "paz",
     "scheme": "upaz",
-    "version": "1.2.0",
+    "version": "1.0.0",
     "orientation": "portrait",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2473071f-0b00-458a-8501-8959ea99c1b9",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B0B0F",
     "icon": "./assets/icon.png",
@@ -19,8 +28,8 @@
       "translucent": false
     },
     "android": {
-      "package": "com.jhoonero.paz",
-       "versionCode": 2,
+      "package": "com.upaz.app",
+      "versionCode": 1,
        "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -50,7 +59,7 @@
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.jhoonero.paz",
+      "bundleIdentifier": "com.upaz.app",
       "icon": "./assets/icon.png",
       "splash": {
         "image": "./assets/icon.png",
@@ -70,7 +79,8 @@
     },
     "plugins": [
       "expo-font",
-      "expo-image-picker"
+      "expo-image-picker",
+      "expo-splash-screen"
     ]
   }
 }

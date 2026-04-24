@@ -9,7 +9,6 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import Feather from '@expo/vector-icons/Feather';
@@ -39,7 +38,6 @@ function FloatingActionButton({
 
   return (
     <>
-      {/* Botón + subido para dejar espacio a Natal-IA */}
       <View
         pointerEvents={hideFab ? 'none' : 'auto'}
         style={[
@@ -48,7 +46,7 @@ function FloatingActionButton({
             width: fabSize,
             height: fabSize,
             borderRadius: fabSize / 2,
-            bottom: tabBarHeight + 68,
+            bottom: tabBarHeight + 14,
             right: fabRight,
             opacity: hideFab ? 0 : 1,
           },
@@ -67,16 +65,6 @@ function FloatingActionButton({
           <Ionicons name="add" size={24} color="#F3F4F6" />
         </TouchableOpacity>
       </View>
-
-      {/* Botón flotante Natal-IA */}
-      <TouchableOpacity
-        style={[s.natalFab, { bottom: tabBarHeight + 12, right: fabRight - 32 }]}
-        activeOpacity={0.85}
-        onPress={() => router.push('/natal-ia')}
-      >
-        <MaterialCommunityIcons name="bat" size={15} color="#E9D5FF" />
-        <Text style={s.natalFabTxt}>Natal-IA</Text>
-      </TouchableOpacity>
     </>
   );
 }
@@ -352,27 +340,5 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.4,
     shadowRadius: 4,
-  },
-  natalFab: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#2D1B4E',
-    borderWidth: 1,
-    borderColor: '#7C3AED',
-    borderRadius: 24,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-  },
-  natalFabTxt: {
-    color: '#E9D5FF',
-    fontWeight: '700',
-    fontSize: 13,
   },
 });

@@ -6,9 +6,10 @@ import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
-import { Animated, Dimensions, StyleSheet, View } from 'react-native';
+import { Animated, Dimensions, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Image } from 'expo-image';
 import { supabase } from '../lib/supabase';
+import { useVersionCheck } from '../hooks/useVersionCheck';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -53,6 +54,7 @@ export default function RootLayout() {
   const router = useRouter();
   const [fontsLoaded] = useFonts({});
   const [showSplash, setShowSplash] = useState(true);
+  const { showUpdate, forceUpdate, openPlayStore, dismiss } = useVersionCheck();
 
   useEffect(() => {
     const handleDeepLink = async (event: { url: string }) => {
@@ -69,7 +71,7 @@ export default function RootLayout() {
           });
 
           if (!error) {
-            router.replace('/(auth)/reset-password-direct');
+            router.replace('/(auth)/reset-password');
           }
         }
       }
@@ -116,6 +118,71 @@ export default function RootLayout() {
       {showSplash && (
         <AnimatedSplash onDone={() => setShowSplash(false)} />
       )}
+
+      <Modal visible={showUpdate} transparent animationType="fade" onRequestClose={dismiss}>
+        <View style={up.overlay}>
+          <View style={up.sheet}>
+            <Text style={up.emoji}>🚀</Text>
+            <Text style={up.title}>Nueva versión disponible</Text>
+            <Text style={up.body}>
+              Hay una actualización de U-PAZ lista. Actualiza para tener lo último y lo mejor.
+            </Text>
+            <TouchableOpacity style={up.btn} onPress={openPlayStore}>
+              <Text style={up.btnTxt}>Actualizar ahora</Text>
+            </TouchableOpacity>
+            {!forceUpdate && (
+              <TouchableOpacity onPress={dismiss} hitSlop={10}>
+                <Text style={up.skip}>Ahora no</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ThemeProvider>
   );
 }
+
+const up = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  sheet: {
+    backgroundColor: '#0D0D14',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#4F46E5',
+    padding: 28,
+    alignItems: 'center',
+    width: '100%',
+  },
+  emoji: { fontSize: 40, marginBottom: 12 },
+  title: {
+    color: '#F3F4F6',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  body: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  btn: {
+    backgroundColor: '#4F46E5',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  btnTxt: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  skip: { color: '#4B5563', fontSize: 13 },
+});

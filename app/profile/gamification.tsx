@@ -12,6 +12,7 @@ import {
   Modal,
 } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import NatalIABanner from '../../components/NatalIABanner';
 import { Ionicons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -273,6 +274,9 @@ export default function GamificationScreen() {
             </View>
           )}
         </View>
+
+        {/* ── Natal-IA ──────────────────────────────────────────── */}
+        {isOwn && <NatalIABanner />}
 
         {/* ── Racha ─────────────────────────────────────────────── */}
         <View style={s.card}>
